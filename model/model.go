@@ -41,9 +41,9 @@ type Container struct {
 	CgroupParent string
 	// MemoryLimit specifies the memory limit for this container
 	MemoryLimit uint64
-	// CpuPeriod and CpuQuota specifies the CPU limit to this container
-	CpuPeriod uint64
-	CpuQuota  int64
+	// CPUPeriod and CPUQuota specifies the CPU limit to this container
+	CPUPeriod uint64
+	CPUQuota  int64
 	// Privilege specifies the privilege mode for container
 	Privilege bool
 	// Capabilities required by container

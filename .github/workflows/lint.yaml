@@ -1,0 +1,25 @@
+name: lint
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  golint:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: golangci/golangci-lint-action@v2
+        with:
+          version: v1.48
+          skip-pkg-cache: true
+          skip-build-cache: true # skip cache because of flaky behaviors
+
+  commitlint:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@v4
+        with:
+          configFile: .commitlintrc.json

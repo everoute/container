@@ -47,6 +47,7 @@ import (
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -98,7 +99,7 @@ func NewRuntime(endpoint string, tlsConfig *tls.Config, timeout time.Duration, n
 func newTCPClient(ctx context.Context, endpoint string, tlsConfig *tls.Config, timeout time.Duration) (*containerd.Client, error) {
 	var opts = []grpc.DialOption{grpc.WithBlock()}
 	if tlsConfig == nil {
-		opts = append(opts, grpc.WithInsecure())
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	} else {
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
 	}
@@ -455,8 +456,8 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 	if container.MemoryLimit > 0 {
 		specOpts = append(specOpts, oci.WithMemoryLimit(container.MemoryLimit))
 	}
-	if container.CpuQuota > 0 && container.CpuPeriod > 0 {
-		specOpts = append(specOpts, oci.WithCPUCFS(container.CpuQuota, container.CpuPeriod))
+	if container.CPUQuota > 0 && container.CPUPeriod > 0 {
+		specOpts = append(specOpts, oci.WithCPUCFS(container.CPUQuota, container.CPUPeriod))
 	}
 	return specOpts
 }
