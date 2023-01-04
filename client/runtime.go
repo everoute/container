@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alessio/shellescape"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/containers"
@@ -37,7 +38,9 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/runtime/restart"
+	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -169,7 +172,7 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 
 	image, err := r.getImage(ctx, container.Image)
 	if err != nil {
-		return err
+		return fmt.Errorf("get image %s: %s", container.Image, err)
 	}
 
 	nc, err := r.client.NewContainer(ctx, container.Name,
@@ -177,15 +180,15 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 		withNewSnapshotAndConfig(image, container.ConfigContent),
 		restart.WithLogPath(container.Process.LogPath),
 		containerd.WithRuntime(defaults.DefaultRuntime, nil),
-		containerd.WithNewSpec(containerSpecOpts(image, container)...),
+		containerd.WithNewSpec(containerSpecOpts(r.namespace, image, container)...),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("create container: %s", err)
 	}
 
-	task, err := nc.NewTask(ctx, cio.LogFile(container.Process.LogPath))
+	task, err := r.newTask(ctx, nc, cio.LogFile(container.Process.LogPath))
 	if err != nil {
-		return err
+		return fmt.Errorf("create task: %s", err)
 	}
 	defer func() {
 		if err != nil || follow {
@@ -221,6 +224,21 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 	}
 
 	return nil
+}
+
+func (r *runtime) newTask(ctx context.Context, container containerd.Container, creator cio.Creator) (containerd.Task, error) {
+	task, err := container.NewTask(ctx, creator)
+	if err == nil || !errdefs.IsAlreadyExists(err) {
+		return task, err
+	}
+
+	// delete orphans shim on task already exists
+	killCommand := fmt.Sprintf("kill -9 $(ps --no-headers -o pid,cmd -p $(pidof containerd-shim-runc-v1 containerd-shim-runc-v2) | awk %s)",
+		shellescape.Quote(fmt.Sprintf(`{if ($4 == "%s" && $6 == "%s") print $1}`, r.namespace, container.ID())),
+	)
+	_ = r.execHostCommand(ctx, "remove-task-shim"+uuid.New().String(), "sh", "-c", killCommand)
+
+	return container.NewTask(ctx, creator)
 }
 
 func (r *runtime) RemoveContainer(ctx context.Context, containerID string) error {
@@ -351,6 +369,51 @@ func (r *runtime) Close() error {
 	return r.client.Close()
 }
 
+func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...string) error {
+	ctx = namespaces.WithNamespace(ctx, r.namespace)
+
+	specOpts := append(
+		containerSpecOpts(r.namespace, nil, &model.Container{Name: name}),
+		oci.WithHostNamespace(specs.PIDNamespace),
+		oci.WithRootFSReadonly(),
+		oci.WithRootFSPath("rootfs"),
+		oci.WithPrivileged,
+		oci.WithProcessCwd("/"),
+		oci.WithProcessArgs(commands...),
+		withoutAnyMounts(),
+		oci.WithMounts([]specs.Mount{{Type: "rbind", Destination: "/", Source: "/", Options: []string{"rbind", "ro"}}}),
+	)
+	nc, err := r.client.NewContainer(ctx, name, containerd.WithRuntime(plugin.RuntimeRuncV2, nil), containerd.WithNewSpec(specOpts...))
+	if err != nil {
+		return fmt.Errorf("create container: %s", err)
+	}
+	defer nc.Delete(ctx)
+
+	task, err := nc.NewTask(ctx, cio.NullIO)
+	if err != nil {
+		return fmt.Errorf("create task: %s", err)
+	}
+	defer task.Delete(ctx, containerd.WithProcessKill)
+
+	if err = task.Start(ctx); err != nil {
+		return fmt.Errorf("start task: %s", err)
+	}
+
+	status, _ := task.Wait(ctx)
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("context done: %s", ctx.Err())
+	case rs := <-status:
+		if rs.Error() != nil {
+			return fmt.Errorf("unexpected error: %s", rs.Error())
+		}
+		if rs.ExitCode() != 0 {
+			return fmt.Errorf("task exit with rc = %d", rs.ExitCode())
+		}
+		return nil
+	}
+}
+
 func loadDockerLayoutImage(ctx context.Context, client *containerd.Client, newReadCloserFunc resolver.NewReadCloserFunc) error {
 	readCloser, err := newReadCloserFunc()
 	if err != nil {
@@ -372,21 +435,23 @@ func loadDockerLayoutImage(ctx context.Context, client *containerd.Client, newRe
 	return nil
 }
 
-func containerSpecOpts(img containerd.Image, container *model.Container) []oci.SpecOpts {
+func containerSpecOpts(namespace string, img containerd.Image, container *model.Container) []oci.SpecOpts {
 	var specOpts []oci.SpecOpts
 	specOpts = append(specOpts, oci.WithProcessCwd(container.Process.WorkingDir))
 	specOpts = append(specOpts, oci.WithProcessArgs(container.Process.Args...))
-	specOpts = append(specOpts, oci.WithCgroup(path.Join(container.CgroupParent, container.Name)))
+	specOpts = append(specOpts, oci.WithCgroup(path.Join(container.CgroupParent, namespace, container.Name)))
 	specOpts = append(specOpts, oci.WithEnv(container.Process.Env))
 	specOpts = append(specOpts, oci.WithDefaultPathEnv)
-	specOpts = append(specOpts, withImageENV(img))
 	specOpts = append(specOpts, oci.WithMounts(container.Mounts))
 	specOpts = append(specOpts, oci.WithHostname("localhost"))
 	specOpts = append(specOpts, oci.WithHostNamespace(specs.NetworkNamespace), oci.WithHostHostsFile, oci.WithHostResolvconf)
+	specOpts = append(specOpts, oci.WithAddedCapabilities(container.Capabilities))
 	if container.Privilege {
 		specOpts = append(specOpts, oci.WithPrivileged)
 	}
-	specOpts = append(specOpts, oci.WithAddedCapabilities(container.Capabilities))
+	if img != nil {
+		specOpts = append(specOpts, withImageENV(img))
+	}
 	if container.MemoryLimit > 0 {
 		specOpts = append(specOpts, oci.WithMemoryLimit(container.MemoryLimit))
 	}
@@ -432,6 +497,13 @@ func toRawConfig(config []model.ConfigFile) []byte {
 	}
 
 	return rawData.Bytes()
+}
+
+func withoutAnyMounts() oci.SpecOpts {
+	return func(ctx context.Context, client oci.Client, container *containers.Container, spec *oci.Spec) error {
+		spec.Mounts = nil
+		return nil
+	}
 }
 
 func withNewSnapshotAndConfig(img containerd.Image, configContent []model.ConfigFile) containerd.NewContainerOpts {
