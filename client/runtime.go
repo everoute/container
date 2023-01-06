@@ -446,10 +446,10 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 	specOpts = append(specOpts, oci.WithMounts(container.Mounts))
 	specOpts = append(specOpts, oci.WithHostname("localhost"))
 	specOpts = append(specOpts, oci.WithHostNamespace(specs.NetworkNamespace), oci.WithHostHostsFile, oci.WithHostResolvconf)
-	specOpts = append(specOpts, oci.WithAddedCapabilities(container.Capabilities))
 	if container.Privilege {
 		specOpts = append(specOpts, oci.WithPrivileged)
 	}
+	specOpts = append(specOpts, oci.WithAddedCapabilities(container.Capabilities))
 	if img != nil {
 		specOpts = append(specOpts, withImageENV(img))
 	}
