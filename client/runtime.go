@@ -264,7 +264,7 @@ func (r *runtime) RemoveContainer(ctx context.Context, containerID string) error
 	}
 	if err == nil {
 		_, err = task.Delete(ctx, containerd.WithProcessKill)
-		if err != nil {
+		if err != nil && !errdefs.IsNotFound(err) {
 			return err
 		}
 	}
