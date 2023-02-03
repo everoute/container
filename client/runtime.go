@@ -27,7 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alessio/shellescape"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/containers"
@@ -38,9 +37,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/runtime/restart"
-	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -93,6 +90,11 @@ func NewRuntime(endpoint string, tlsConfig *tls.Config, timeout time.Duration, n
 	}
 
 	r := &runtime{platform: platform, namespace: namespace, client: client}
+
+	if err = r.doConfig(ctx); err != nil {
+		return nil, err
+	}
+
 	return r, nil
 }
 
@@ -227,21 +229,6 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 	return nil
 }
 
-func (r *runtime) newTask(ctx context.Context, container containerd.Container, creator cio.Creator) (containerd.Task, error) {
-	task, err := container.NewTask(ctx, creator)
-	if err == nil || !errdefs.IsAlreadyExists(err) {
-		return task, err
-	}
-
-	// delete orphans shim on task already exists
-	killCommand := fmt.Sprintf("kill -9 $(ps --no-headers -o pid,cmd -p $(pidof containerd-shim-runc-v1 containerd-shim-runc-v2) | awk %s)",
-		shellescape.Quote(fmt.Sprintf(`{if ($4 == "%s" && $6 == "%s") print $1}`, r.namespace, container.ID())),
-	)
-	_ = r.execHostCommand(ctx, "remove-task-shim"+uuid.New().String(), "sh", "-c", killCommand)
-
-	return container.NewTask(ctx, creator)
-}
-
 func (r *runtime) RemoveContainer(ctx context.Context, containerID string) error {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 
@@ -370,49 +357,11 @@ func (r *runtime) Close() error {
 	return r.client.Close()
 }
 
-func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...string) error {
-	ctx = namespaces.WithNamespace(ctx, r.namespace)
-
-	specOpts := append(
-		containerSpecOpts(r.namespace, nil, &model.Container{Name: name}),
-		oci.WithHostNamespace(specs.PIDNamespace),
-		oci.WithRootFSReadonly(),
-		oci.WithRootFSPath("rootfs"),
-		oci.WithPrivileged,
-		oci.WithProcessCwd("/"),
-		oci.WithProcessArgs(commands...),
-		withoutAnyMounts(),
-		oci.WithMounts([]specs.Mount{{Type: "rbind", Destination: "/", Source: "/", Options: []string{"rbind", "ro"}}}),
-	)
-	nc, err := r.client.NewContainer(ctx, name, containerd.WithRuntime(plugin.RuntimeRuncV2, nil), containerd.WithNewSpec(specOpts...))
-	if err != nil {
-		return fmt.Errorf("create container: %s", err)
+func (r *runtime) doConfig(ctx context.Context) error {
+	if err := r.doPlatformConfig(ctx); err != nil {
+		return err
 	}
-	defer nc.Delete(ctx)
-
-	task, err := nc.NewTask(ctx, cio.NullIO)
-	if err != nil {
-		return fmt.Errorf("create task: %s", err)
-	}
-	defer task.Delete(ctx, containerd.WithProcessKill)
-
-	if err = task.Start(ctx); err != nil {
-		return fmt.Errorf("start task: %s", err)
-	}
-
-	status, _ := task.Wait(ctx)
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context done: %s", ctx.Err())
-	case rs := <-status:
-		if rs.Error() != nil {
-			return fmt.Errorf("unexpected error: %s", rs.Error())
-		}
-		if rs.ExitCode() != 0 {
-			return fmt.Errorf("task exit with rc = %d", rs.ExitCode())
-		}
-		return nil
-	}
+	return nil
 }
 
 func loadDockerLayoutImage(ctx context.Context, client *containerd.Client, newReadCloserFunc resolver.NewReadCloserFunc) error {
