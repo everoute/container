@@ -30,10 +30,12 @@ import (
 type Runtime interface {
 	ImageManager
 	ContainerManager
+	io.Closer
 
+	// ConfigRuntime config container runtime
+	ConfigRuntime(ctx context.Context) error
 	// RemoveNamespace delete runtime namespace
 	RemoveNamespace(ctx context.Context) error
-	io.Closer
 }
 
 // ImageManager contains methods to manipulate images. The methods are thread-safe.

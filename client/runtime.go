@@ -90,11 +90,6 @@ func NewRuntime(endpoint string, tlsConfig *tls.Config, timeout time.Duration, n
 	}
 
 	r := &runtime{platform: platform, namespace: namespace, client: client}
-
-	if err = r.doConfig(ctx); err != nil {
-		return nil, err
-	}
-
 	return r, nil
 }
 
@@ -114,6 +109,10 @@ func newTCPClient(ctx context.Context, endpoint string, tlsConfig *tls.Config, t
 	// containerd.NewWithConn always use io.containerd.runtime.v1/linux as runtime
 	// so must specify runtime(io.containerd.runc.v2) when create container.
 	return containerd.NewWithConn(conn, containerd.WithTimeout(timeout))
+}
+
+func (r *runtime) ConfigRuntime(ctx context.Context) error {
+	return r.doConfig(ctx)
 }
 
 func (r *runtime) ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, imageRefs ...string) error {
