@@ -68,7 +68,20 @@ func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...
 		oci.WithProcessCwd("/"),
 		oci.WithProcessArgs(commands...),
 		withoutAnyMounts(),
-		oci.WithMounts([]specs.Mount{{Type: "rbind", Destination: "/", Source: "/", Options: []string{"rbind", "ro"}}}),
+		oci.WithMounts([]specs.Mount{
+			{
+				Type:        "rbind",
+				Destination: "/",
+				Source:      "/",
+				Options:     []string{"rbind", "ro"},
+			},
+			{
+				Type:        "tmpfs",
+				Destination: "/dev",
+				Source:      "tmpfs",
+				Options:     []string{"nosuid", "strictatime", "mode=755", "size=65536k"},
+			},
+		}),
 	)
 	nc, err := r.client.NewContainer(ctx, name, containerd.WithRuntime(plugin.RuntimeRuncV2, nil), containerd.WithNewSpec(specOpts...))
 	if err != nil {
