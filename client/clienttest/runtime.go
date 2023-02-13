@@ -44,7 +44,7 @@ func NewRuntime(followWaitTime time.Duration) client.Runtime {
 	}
 }
 
-func (r *runtime) ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, imageRefs ...string) error {
+func (r *runtime) ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, allowPull bool, imageRefs ...string) error {
 	for _, ref := range imageRefs {
 		r.images[ref] = images.Image{Name: ref}
 	}

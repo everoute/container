@@ -26,6 +26,7 @@ import (
 
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/remotes"
+	"github.com/containerd/containerd/remotes/docker"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -41,12 +42,14 @@ func NewReadCloserFromFile(name string) NewReadCloserFunc {
 
 // tarFileResolver implements remotes.Resolver
 // It considers an images tar as an image registry, and resolve from the tar.
-// It support oci image layout 1.0.0 only.
+// It supports oci image layout 1.0.0 only.
 type tarFileResolver struct {
-	newReadCloser NewReadCloserFunc
+	newReadCloser    NewReadCloserFunc
+	allowPull        bool
+	registryResolver remotes.Resolver
 }
 
-func NewTarFileResolver(newReadCloser NewReadCloserFunc) (remotes.Resolver, error) {
+func NewTarFileResolver(newReadCloser NewReadCloserFunc, allowPull bool) (remotes.Resolver, error) {
 	readCloser, err := findFileInReadCloser(newReadCloser, ocispec.ImageLayoutFile)
 	if err != nil {
 		return nil, fmt.Errorf("open image reader: %s", err)
@@ -61,10 +64,15 @@ func NewTarFileResolver(newReadCloser NewReadCloserFunc) (remotes.Resolver, erro
 		return nil, fmt.Errorf("not support image layout version %s", imageLayout.Version)
 	}
 
-	return &tarFileResolver{newReadCloser: newReadCloser}, nil
+	resolver := &tarFileResolver{
+		newReadCloser:    newReadCloser,
+		allowPull:        allowPull,
+		registryResolver: docker.NewResolver(docker.ResolverOptions{}),
+	}
+	return resolver, nil
 }
 
-func (t *tarFileResolver) Resolve(_ context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
+func (t *tarFileResolver) Resolve(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
 	readCloser, err := findFileInReadCloser(t.newReadCloser, "index.json")
 	if err != nil {
 		return "", ocispec.Descriptor{}, fmt.Errorf("open image reader: %s", err)
@@ -82,14 +90,27 @@ func (t *tarFileResolver) Resolve(_ context.Context, ref string) (name string, d
 			return ref, manifest, nil
 		}
 	}
+
+	if t.allowPull {
+		return t.registryResolver.Resolve(ctx, ref)
+	}
 	return "", ocispec.Descriptor{}, fmt.Errorf("image with reference %s not found", ref)
 }
 
-func (t *tarFileResolver) Fetcher(_ context.Context, _ string) (remotes.Fetcher, error) {
+func (t *tarFileResolver) Fetcher(ctx context.Context, ref string) (remotes.Fetcher, error) {
 	return remotes.FetcherFunc(func(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
 		// fileLocation follow https://github.com/opencontainers/image-spec/blob/main/image-layout.md
 		var fileLocation = fmt.Sprintf("blobs/%s/%s", desc.Digest.Algorithm(), desc.Digest.Encoded())
-		return findFileInReadCloser(t.newReadCloser, fileLocation)
+		readCloser, err := findFileInReadCloser(t.newReadCloser, fileLocation)
+		if !t.allowPull || err == nil {
+			return readCloser, err
+		}
+
+		registryFetcher, err := t.registryResolver.Fetcher(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		return registryFetcher.Fetch(ctx, desc)
 	}), nil
 }
 

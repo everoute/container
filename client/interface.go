@@ -41,7 +41,7 @@ type Runtime interface {
 // ImageManager contains methods to manipulate images. The methods are thread-safe.
 type ImageManager interface {
 	// ImportImage imports specify images from resolver.NewReadCloserFunc
-	ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, imageRefs ...string) error
+	ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, allowPull bool, imageRefs ...string) error
 
 	// ListImages list all images in containerd
 	ListImages(ctx context.Context) ([]images.Image, error)

@@ -115,10 +115,10 @@ func (r *runtime) ConfigRuntime(ctx context.Context) error {
 	return r.doConfig(ctx)
 }
 
-func (r *runtime) ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, imageRefs ...string) error {
+func (r *runtime) ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, allowPull bool, imageRefs ...string) error {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 
-	tarResolver, err := resolver.NewTarFileResolver(newReadCloserFunc)
+	tarResolver, err := resolver.NewTarFileResolver(newReadCloserFunc, allowPull)
 	if err != nil {
 		// resolver.NewTarFileResolver only support oci 1.0.0 layout, to support docker layout, we need load all images
 		return loadDockerLayoutImage(ctx, r.client, newReadCloserFunc)
