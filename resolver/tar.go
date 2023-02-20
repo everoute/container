@@ -107,6 +107,7 @@ func findFileInReadCloser(newReadCloser NewReadCloserFunc, fileName string) (io.
 	for {
 		head, err := tarReader.Next()
 		if err != nil {
+			fileReadCloser.Close()
 			if err == io.EOF {
 				return nil, fmt.Errorf("%s not found", fileName)
 			}
