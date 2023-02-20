@@ -18,7 +18,10 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
+	"time"
 
 	"github.com/alessio/shellescape"
 	"github.com/containerd/containerd"
@@ -27,9 +30,11 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/plugin"
-	"github.com/everoute/container/model"
 	"github.com/google/uuid"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"k8s.io/apimachinery/pkg/util/wait"
+
+	"github.com/everoute/container/model"
 )
 
 func (r *runtime) doPlatformConfig(ctx context.Context) error {
@@ -43,8 +48,15 @@ func (r *runtime) enableMayDetachMounts(ctx context.Context) error {
 
 func (r *runtime) newTask(ctx context.Context, container containerd.Container, creator cio.Creator) (containerd.Task, error) {
 	task, err := container.NewTask(ctx, creator)
-	if err == nil || !errdefs.IsAlreadyExists(err) {
-		return task, err
+	if err == nil {
+		return task, nil
+	}
+
+	// task already exists return "unknown" before containerd v1.6.0, see more: https://github.com/containerd/containerd/pull/6079
+	errorIsTaskExists := errdefs.IsAlreadyExists(err) ||
+		errors.Is(err, errdefs.ErrUnknown) && regexp.MustCompile(`task .* already exists: unknown$`).MatchString(err.Error())
+	if !errorIsTaskExists {
+		return nil, err
 	}
 
 	// delete orphans shim on task already exists
@@ -53,7 +65,17 @@ func (r *runtime) newTask(ctx context.Context, container containerd.Container, c
 	)
 	_ = r.execHostCommand(ctx, "remove-task-shim"+uuid.New().String(), "sh", "-c", killCommand)
 
-	return container.NewTask(ctx, creator)
+	// to prevent indefinitely waiting, set default timeout to 1min. If ctx
+	// has an earlier deadline, the timeout will be overridden
+	pollCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	// waiting for new task create
+	err = wait.PollImmediateUntilWithContext(pollCtx, time.Second, func(ctx context.Context) (bool, error) {
+		task, err = container.NewTask(ctx, creator)
+		return err != nil, err
+	})
+	return task, err
 }
 
 func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...string) error {
