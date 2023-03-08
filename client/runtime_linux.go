@@ -54,7 +54,8 @@ func (r *runtime) newTask(ctx context.Context, container containerd.Container, c
 
 	// task already exists return "unknown" before containerd v1.6.0, see more: https://github.com/containerd/containerd/pull/6079
 	errorIsTaskExists := errdefs.IsAlreadyExists(err) ||
-		errors.Is(err, errdefs.ErrUnknown) && regexp.MustCompile(`task .* already exists: unknown$`).MatchString(err.Error())
+		errors.Is(err, errdefs.ErrUnknown) && regexp.MustCompile(`task .* already exists: unknown$`).MatchString(err.Error()) ||
+		errors.Is(err, errdefs.ErrUnknown) && regexp.MustCompile(`container with id exists: .*: unknown$`).MatchString(err.Error())
 	if !errorIsTaskExists {
 		return nil, err
 	}
@@ -65,6 +66,9 @@ func (r *runtime) newTask(ctx context.Context, container containerd.Container, c
 	)
 	_ = r.execHostCommand(ctx, "remove-task-shim"+uuid.New().String(), "sh", "-c", killCommand)
 
+	// delete orphans runc container in namespace
+	_ = r.execHostCommand(ctx, "remove-runc-container"+uuid.New().String(), "runc", "--root=/run/containerd/runc/"+r.namespace, "delete", "-f", container.ID())
+
 	// to prevent indefinitely waiting, set default timeout to 1min. If ctx
 	// has an earlier deadline, the timeout will be overridden
 	pollCtx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -73,7 +77,7 @@ func (r *runtime) newTask(ctx context.Context, container containerd.Container, c
 	// waiting for new task create
 	err = wait.PollImmediateUntilWithContext(pollCtx, time.Second, func(ctx context.Context) (bool, error) {
 		task, err = container.NewTask(ctx, creator)
-		return err != nil, err
+		return err == nil, err
 	})
 	return task, err
 }
