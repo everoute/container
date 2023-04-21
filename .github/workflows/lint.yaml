@@ -7,10 +7,10 @@ jobs:
   golint:
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.48
+          version: v1.52
           skip-pkg-cache: true
           skip-build-cache: true # skip cache because of flaky behaviors
 
