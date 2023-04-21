@@ -180,7 +180,7 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 	nc, err := r.client.NewContainer(ctx, container.Name,
 		containerd.WithImageName(container.Image),
 		withNewSnapshotAndConfig(image, container.ConfigContent),
-		restart.WithLogPath(container.Process.LogPath),
+		withLogPath(container.Process.LogPath),
 		containerd.WithRuntime(defaults.DefaultRuntime, nil),
 		containerd.WithNewSpec(containerSpecOpts(r.namespace, image, container)...),
 	)
@@ -204,7 +204,7 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 	}
 
 	if container.Process.RestartPolicy == model.RestartPolicyAlways {
-		err = nc.Update(ctx, restart.WithLogPath(container.Process.LogPath), restart.WithStatus(containerd.Running))
+		err = nc.Update(ctx, withLogPath(container.Process.LogPath), restart.WithStatus(containerd.Running))
 		if err != nil {
 			return err
 		}
@@ -519,6 +519,23 @@ func withImageENV(img containerd.Image) oci.SpecOpts {
 		}
 
 		s.Process.Env = sets.NewString(append(config.Env, s.Process.Env...)...).List()
+		return nil
+	}
+}
+
+func withLogPath(logPath string) func(ctx context.Context, client *containerd.Client, c *containers.Container) error {
+	return func(ctx context.Context, client *containerd.Client, c *containers.Container) error {
+		if c.Labels == nil {
+			c.Labels = make(map[string]string)
+		}
+
+		uri, err := cio.LogURIGenerator("file", logPath, nil)
+		if err != nil {
+			return err
+		}
+
+		c.Labels[restart.LogPathLabel] = logPath
+		c.Labels[restart.LogURILabel] = uri.String()
 		return nil
 	}
 }
