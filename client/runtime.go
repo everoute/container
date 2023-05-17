@@ -38,6 +38,7 @@ import (
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/runtime/restart"
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -407,6 +408,8 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 	if container.CPUQuota > 0 && container.CPUPeriod > 0 {
 		specOpts = append(specOpts, oci.WithCPUCFS(container.CPUQuota, container.CPUPeriod))
 	}
+	specOpts = append(specOpts, withRlimits(container.Rlimits))
+	specOpts = append(specOpts, withSpecPatches(container.SpecPatches))
 	return specOpts
 }
 
@@ -537,6 +540,42 @@ func withLogPath(logPath string) func(ctx context.Context, client *containerd.Cl
 		c.Labels[restart.LogPathLabel] = logPath
 		c.Labels[restart.LogURILabel] = uri.String()
 		return nil
+	}
+}
+
+func withRlimits(rlimits []specs.POSIXRlimit) oci.SpecOpts {
+	return func(ctx context.Context, client oci.Client, container *containers.Container, spec *oci.Spec) error {
+		spec.Process.Rlimits = append(spec.Process.Rlimits, rlimits...)
+		return nil
+	}
+}
+
+func withSpecPatches(specPatches []json.RawMessage) oci.SpecOpts {
+	opts := make([]oci.SpecOpts, 0, len(specPatches))
+	for _, specPatch := range specPatches {
+		opts = append(opts, withSpecPatch(specPatch))
+	}
+	return oci.Compose(opts...)
+}
+
+func withSpecPatch(specPatch json.RawMessage) oci.SpecOpts {
+	return func(ctx context.Context, client oci.Client, container *containers.Container, spec *oci.Spec) error {
+		if len(specPatch) == 0 {
+			return nil
+		}
+		patch, err := jsonpatch.DecodePatch(specPatch)
+		if err != nil {
+			return fmt.Errorf("invalid spec-patch(%s): %s", string(specPatch), err)
+		}
+		rawSpec, err := json.Marshal(spec)
+		if err != nil {
+			return fmt.Errorf("marshal spec as json: %s", err)
+		}
+		patSpec, err := patch.Apply(rawSpec)
+		if err != nil {
+			return fmt.Errorf("patch container spec: %s", err)
+		}
+		return json.Unmarshal(patSpec, spec)
 	}
 }
 

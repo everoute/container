@@ -17,6 +17,7 @@ limitations under the License.
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -48,6 +49,11 @@ type Container struct {
 	Privilege bool
 	// Capabilities required by container
 	Capabilities []string
+	// Rlimits specifies rlimit options to apply to the process.
+	Rlimits []specs.POSIXRlimit
+	// SpecPatches is a list of jsonpatch for container oci spec.
+	// The patches applied in order.
+	SpecPatches []json.RawMessage
 }
 
 type Process struct {
