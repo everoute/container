@@ -23,14 +23,10 @@ import (
 
 	"github.com/containerd/containerd/oci"
 	"github.com/google/go-cmp/cmp"
-	. "github.com/onsi/gomega"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
 func TestWithSpecPatch(t *testing.T) {
-
-	RegisterTestingT(t)
-
 	testCases := []struct {
 		specPatch   string
 		expectError bool
@@ -91,6 +87,44 @@ func TestWithSpecPatch(t *testing.T) {
 			}
 
 			diff := cmp.Diff(spec, tc.expectSpec)
+			if diff != "" {
+				t.Fatalf("unexpect spec with diff = %s", diff)
+			}
+		})
+	}
+}
+
+func TestWithRlimit(t *testing.T) {
+	testCases := []struct {
+		originSpec *specs.Spec
+		rlimits    []specs.POSIXRlimit
+		expectSpec *specs.Spec
+	}{
+		{
+			originSpec: &specs.Spec{Process: &specs.Process{Rlimits: []specs.POSIXRlimit{}}},
+			rlimits:    []specs.POSIXRlimit{},
+			expectSpec: &specs.Spec{Process: &specs.Process{Rlimits: []specs.POSIXRlimit{}}},
+		},
+		{
+			originSpec: &specs.Spec{Process: &specs.Process{Rlimits: []specs.POSIXRlimit{}}},
+			rlimits:    []specs.POSIXRlimit{{Type: "RLIMIT_NOFILE", Hard: 1024, Soft: 1024}},
+			expectSpec: &specs.Spec{Process: &specs.Process{Rlimits: []specs.POSIXRlimit{{Type: "RLIMIT_NOFILE", Hard: 1024, Soft: 1024}}}},
+		},
+		{
+			originSpec: &specs.Spec{Process: &specs.Process{Rlimits: []specs.POSIXRlimit{{Type: "RLIMIT_NOFILE", Hard: 1000, Soft: 1000}}}},
+			rlimits:    []specs.POSIXRlimit{{Type: "RLIMIT_NOFILE", Hard: 1024, Soft: 1024}},
+			expectSpec: &specs.Spec{Process: &specs.Process{Rlimits: []specs.POSIXRlimit{{Type: "RLIMIT_NOFILE", Hard: 1024, Soft: 1024}}}},
+		},
+	}
+
+	for index, tc := range testCases {
+		t.Run(fmt.Sprintf("case%d", index), func(t *testing.T) {
+			err := oci.ApplyOpts(context.Background(), nil, nil, tc.originSpec, withRlimits(tc.rlimits))
+			if err != nil {
+				t.Fatalf("unexpect error: %s", err)
+			}
+
+			diff := cmp.Diff(tc.originSpec, tc.expectSpec)
 			if diff != "" {
 				t.Fatalf("unexpect spec with diff = %s", diff)
 			}

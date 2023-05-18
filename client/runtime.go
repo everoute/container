@@ -545,7 +545,17 @@ func withLogPath(logPath string) func(ctx context.Context, client *containerd.Cl
 
 func withRlimits(rlimits []specs.POSIXRlimit) oci.SpecOpts {
 	return func(ctx context.Context, client oci.Client, container *containers.Container, spec *oci.Spec) error {
-		spec.Process.Rlimits = append(spec.Process.Rlimits, rlimits...)
+		if spec.Process == nil {
+			spec.Process = &specs.Process{}
+		}
+		rlimitsMap := make(map[string]specs.POSIXRlimit)
+		for _, rlimit := range append(spec.Process.Rlimits, rlimits...) {
+			rlimitsMap[rlimit.Type] = rlimit
+		}
+		spec.Process.Rlimits = make([]specs.POSIXRlimit, 0, len(rlimitsMap))
+		for _, rlimit := range rlimitsMap {
+			spec.Process.Rlimits = append(spec.Process.Rlimits, rlimit)
+		}
 		return nil
 	}
 }
