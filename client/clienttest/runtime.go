@@ -91,7 +91,7 @@ func (r *runtime) RemoveContainer(ctx context.Context, containerID string) error
 func (r *runtime) GetContainer(ctx context.Context, containerID string) (*model.Container, error) {
 	container, ok := r.containers[containerID]
 	if !ok {
-		return nil, fmt.Errorf("container %s not found", container.Name)
+		return nil, fmt.Errorf("container %s not found", containerID)
 	}
 	return container, nil
 }
