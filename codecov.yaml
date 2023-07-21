@@ -1,0 +1,17 @@
+codecov:
+  require_ci_to_pass: yes
+
+coverage:
+  status:
+    project:
+      default:
+        # target: 60% # we need add more tests before enable target check
+        threshold: 10%
+    patch: off
+
+comment:
+  layout: "reach,diff,tree"
+  behavior: default
+
+ignore:
+  - "**/*generate*.go"
