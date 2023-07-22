@@ -26,7 +26,6 @@ import (
 
 	"github.com/everoute/container/client"
 	"github.com/everoute/container/model"
-	"github.com/everoute/container/resolver"
 )
 
 type runtime struct {
@@ -44,8 +43,8 @@ func NewRuntime(followWaitTime time.Duration) client.Runtime {
 	}
 }
 
-func (r *runtime) ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, allowPull bool, imageRefs ...string) error {
-	for _, ref := range imageRefs {
+func (r *runtime) ImportImages(ctx context.Context, refs ...string) error {
+	for _, ref := range refs {
 		r.images[ref] = images.Image{Name: ref}
 	}
 	return nil

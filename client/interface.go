@@ -24,7 +24,6 @@ import (
 	"github.com/containerd/containerd/images"
 
 	"github.com/everoute/container/model"
-	"github.com/everoute/container/resolver"
 )
 
 type Runtime interface {
@@ -40,8 +39,8 @@ type Runtime interface {
 
 // ImageManager contains methods to manipulate images. The methods are thread-safe.
 type ImageManager interface {
-	// ImportImage imports specify images from resolver.NewReadCloserFunc
-	ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, allowPull bool, imageRefs ...string) error
+	// ImportImages imports specify images to containerd
+	ImportImages(ctx context.Context, refs ...string) error
 
 	// ListImages list all images in containerd
 	ListImages(ctx context.Context) ([]images.Image, error)

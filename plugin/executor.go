@@ -34,7 +34,6 @@ import (
 
 	"github.com/everoute/container/client"
 	"github.com/everoute/container/model"
-	"github.com/everoute/container/resolver"
 	"github.com/everoute/container/sync"
 )
 
@@ -48,19 +47,11 @@ type Executor interface {
 }
 
 // New create a new instance of Executor
-func New(
-	runtime client.Runtime,
-	logPrefix string,
-	allowPull bool,
-	newImageReadCloser resolver.NewReadCloserFunc,
-	instance *model.PluginInstanceDefinition,
-) Executor {
+func New(runtime client.Runtime, logPrefix string, instance *model.PluginInstanceDefinition) Executor {
 	executor := &executor{
-		instance:           instance,
-		logPrefix:          logPrefix,
-		allowPull:          allowPull,
-		newImageReadCloser: newImageReadCloser,
-		runtime:            runtime,
+		instance:  instance,
+		logPrefix: logPrefix,
+		runtime:   runtime,
 	}
 	return &errorWrapExecutor{
 		executor:    executor,
@@ -69,11 +60,9 @@ func New(
 }
 
 type executor struct {
-	instance           *model.PluginInstanceDefinition
-	logPrefix          string
-	allowPull          bool
-	newImageReadCloser resolver.NewReadCloserFunc
-	runtime            client.Runtime
+	instance  *model.PluginInstanceDefinition
+	logPrefix string
+	runtime   client.Runtime
 }
 
 func (w *executor) Close() error {
@@ -245,7 +234,7 @@ func (w *executor) uploadContainerImages(ctx context.Context, containers ...mode
 		imageRefs.Insert(c.Image)
 	}
 	w.Infof("uploading images to containerd: %v", imageRefs.List())
-	return w.runtime.ImportImage(ctx, w.newImageReadCloser, w.allowPull, imageRefs.List()...)
+	return w.runtime.ImportImages(ctx, imageRefs.List()...)
 }
 
 func (w *executor) removeContainersInNamespace(ctx context.Context, containers ...model.ContainerDefinition) error {

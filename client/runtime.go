@@ -50,21 +50,32 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/everoute/container/model"
-	"github.com/everoute/container/resolver"
+	"github.com/everoute/container/remotes"
 )
 
 type runtime struct {
 	platform  platforms.MatchComparer
 	namespace string
 	client    *containerd.Client
+	resolver  remotes.Resolver
 }
 
-func NewRuntime(endpoint string, tlsConfig *tls.Config, timeout time.Duration, namespace string) (Runtime, error) {
+// Options to build a new Runtime
+type Options struct {
+	Endpoint  string           // containerd endpoint
+	Namespace string           // containerd namespace
+	TLSConfig *tls.Config      // containerd endpoint tls config
+	Timeout   time.Duration    // containerd connect timeout
+	Provider  remotes.Provider // containerd image provider
+}
+
+// NewRuntime create a new instance of Runtime
+func NewRuntime(ctx context.Context, opt Options) (Runtime, error) {
 	var client *containerd.Client
 	var err error
 	var platform platforms.MatchComparer
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, opt.Timeout)
 	defer cancel()
 
 	// always close connection with containerd on error
@@ -75,10 +86,10 @@ func NewRuntime(endpoint string, tlsConfig *tls.Config, timeout time.Duration, n
 	}()
 
 	// get containerd client from unix socket or tcp connection
-	if strings.HasPrefix(endpoint, "/") { // unix socket
-		client, err = containerd.New(endpoint, containerd.WithTimeout(timeout))
+	if strings.HasPrefix(opt.Endpoint, "/") { // unix socket
+		client, err = containerd.New(opt.Endpoint, containerd.WithTimeout(opt.Timeout))
 	} else {
-		client, err = newTCPClient(ctx, endpoint, tlsConfig, timeout)
+		client, err = newTCPClient(ctx, opt.Endpoint, opt.TLSConfig, opt.Timeout)
 	}
 	if err != nil {
 		return nil, err
@@ -90,7 +101,12 @@ func NewRuntime(endpoint string, tlsConfig *tls.Config, timeout time.Duration, n
 		return nil, err
 	}
 
-	r := &runtime{platform: platform, namespace: namespace, client: client}
+	r := &runtime{
+		platform:  platform,
+		namespace: opt.Namespace,
+		client:    client,
+		resolver:  remotes.ProviderResolver{Provider: opt.Provider},
+	}
 	return r, nil
 }
 
@@ -116,24 +132,18 @@ func (r *runtime) ConfigRuntime(ctx context.Context) error {
 	return r.doConfig(ctx)
 }
 
-func (r *runtime) ImportImage(ctx context.Context, newReadCloserFunc resolver.NewReadCloserFunc, allowPull bool, imageRefs ...string) error {
+func (r *runtime) ImportImages(ctx context.Context, refs ...string) error {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 
-	tarResolver, err := resolver.NewTarFileResolver(newReadCloserFunc, allowPull)
-	if err != nil {
-		// resolver.NewTarFileResolver only support oci 1.0.0 layout, to support docker layout, we need load all images
-		return loadDockerLayoutImage(ctx, r.client, newReadCloserFunc)
-	}
-
-	for _, imageRef := range imageRefs {
-		_, err := r.client.Pull(ctx, imageRef,
+	for _, ref := range refs {
+		_, err := r.client.Pull(ctx, ref,
 			containerd.WithPlatformMatcher(r.platform),
-			containerd.WithResolver(tarResolver),
+			containerd.WithResolver(r.resolver),
 			containerd.WithPullUnpack,
 			containerd.WithPullSnapshotter(containerd.DefaultSnapshotter),
 		)
 		if err != nil {
-			return fmt.Errorf("load %s: %s", imageRef, err)
+			return fmt.Errorf("import %s: %s", ref, err)
 		}
 	}
 	return nil
@@ -360,27 +370,6 @@ func (r *runtime) Close() error {
 func (r *runtime) doConfig(ctx context.Context) error {
 	if err := r.doPlatformConfig(ctx); err != nil {
 		return err
-	}
-	return nil
-}
-
-func loadDockerLayoutImage(ctx context.Context, client *containerd.Client, newReadCloserFunc resolver.NewReadCloserFunc) error {
-	readCloser, err := newReadCloserFunc()
-	if err != nil {
-		return err
-	}
-	defer readCloser.Close()
-
-	imgs, err := client.Import(ctx, readCloser, containerd.WithAllPlatforms(true))
-	if err != nil {
-		return err
-	}
-
-	for _, img := range imgs {
-		err = containerd.NewImage(client, img).Unpack(ctx, containerd.DefaultSnapshotter)
-		if err != nil {
-			return err
-		}
 	}
 	return nil
 }
