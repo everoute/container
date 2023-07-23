@@ -75,6 +75,18 @@ func NewRuntime(ctx context.Context, opt Options) (Runtime, error) {
 	var err error
 	var platform platforms.MatchComparer
 
+	if opt.Namespace == "" {
+		opt.Namespace = "default"
+	}
+
+	if opt.Timeout == 0 {
+		opt.Timeout = 3 * time.Second
+	}
+
+	if opt.Provider == nil {
+		opt.Provider = remotes.NewComposeProvider()
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, opt.Timeout)
 	defer cancel()
 

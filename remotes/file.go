@@ -69,7 +69,7 @@ func (p *fileProvider) Fetcher(ctx context.Context, ref string) (remotes.Fetcher
 
 func (p *fileProvider) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
 	fileLocation := fmt.Sprintf("blobs/%s/%s", desc.Digest.Algorithm(), desc.Digest.Encoded())
-	return lookupFileInTARFile(p.file, fileLocation).Open()
+	return LookupFileInTARFile(p.file, fileLocation).Open()
 }
 
 func (p *fileProvider) Get(ctx context.Context, ref string) (images.Image, error) {
@@ -77,7 +77,7 @@ func (p *fileProvider) Get(ctx context.Context, ref string) (images.Image, error
 		return images.Image{}, err
 	}
 
-	reader, err := lookupFileInTARFile(p.file, "index.json").Open()
+	reader, err := LookupFileInTARFile(p.file, "index.json").Open()
 	if err != nil {
 		return images.Image{}, fmt.Errorf("open file: %s", err)
 	}
@@ -103,7 +103,7 @@ func (p *fileProvider) List(ctx context.Context) ([]images.Image, error) {
 		return nil, err
 	}
 
-	reader, err := lookupFileInTARFile(p.file, "index.json").Open()
+	reader, err := LookupFileInTARFile(p.file, "index.json").Open()
 	if err != nil {
 		return nil, fmt.Errorf("open file: %s", err)
 	}
@@ -140,7 +140,7 @@ func (p *fileProvider) List(ctx context.Context) ([]images.Image, error) {
 }
 
 func (p *fileProvider) checkImageLayout() error {
-	reader, err := lookupFileInTARFile(p.file, ocispec.ImageLayoutFile).Open()
+	reader, err := LookupFileInTARFile(p.file, ocispec.ImageLayoutFile).Open()
 	if err != nil {
 		return fmt.Errorf("open file: %s", err)
 	}
@@ -156,7 +156,7 @@ func (p *fileProvider) checkImageLayout() error {
 	return nil
 }
 
-func lookupFileInTARFile(file File, fileName string) File {
+func LookupFileInTARFile(file File, fileName string) File {
 	return OpenFunc(func() (io.ReadCloser, error) {
 		reader, err := file.Open()
 		if err != nil {
