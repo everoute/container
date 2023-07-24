@@ -33,6 +33,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/everoute/container/client"
+	"github.com/everoute/container/logging"
 	"github.com/everoute/container/model"
 	"github.com/everoute/container/sync"
 )
@@ -47,15 +48,32 @@ type Executor interface {
 }
 
 // New create a new instance of Executor
-func New(runtime client.Runtime, logPrefix string, instance *model.PluginInstanceDefinition) Executor {
+func New(runtime client.Runtime, instance *model.PluginInstanceDefinition, opts ...ExecutorOpt) Executor {
 	executor := &executor{
-		instance:  instance,
-		logPrefix: logPrefix,
-		runtime:   runtime,
+		instance: instance,
+		runtime:  runtime,
+	}
+	for _, opt := range opts {
+		opt(runtime, instance, executor)
 	}
 	return &errorWrapExecutor{
 		executor:    executor,
-		errorPrefix: logPrefix,
+		errorPrefix: executor.logPrefix,
+	}
+}
+
+// ExecutorOpt allows callers to set options on the executor
+type ExecutorOpt func(runtime client.Runtime, instance *model.PluginInstanceDefinition, w *executor)
+
+func WithLogPrefix(logPrefix string) ExecutorOpt {
+	return func(runtime client.Runtime, instance *model.PluginInstanceDefinition, w *executor) {
+		w.logPrefix = logPrefix
+	}
+}
+
+func WithPluginLogging(factory logging.Factory) ExecutorOpt {
+	return func(runtime client.Runtime, instance *model.PluginInstanceDefinition, w *executor) {
+		w.logging = factory.ProviderFor(runtime, instance)
 	}
 }
 
@@ -63,6 +81,7 @@ type executor struct {
 	instance  *model.PluginInstanceDefinition
 	logPrefix string
 	runtime   client.Runtime
+	logging   logging.Provider
 }
 
 func (w *executor) Close() error {
@@ -112,7 +131,8 @@ func (w *executor) Precheck(ctx context.Context) error {
 // 4. start and wait init_containers, kill the container after timeout.
 // 5. start and run containers.
 // 6. wait for all containers ready.
-// 7. remove unused images from containerd.
+// 7. setup container logging config.
+// 8. remove unused images from containerd.
 func (w *executor) Apply(ctx context.Context) error {
 	err := w.configContainerRuntime(ctx)
 	if err != nil {
@@ -144,6 +164,11 @@ func (w *executor) Apply(ctx context.Context) error {
 		return fmt.Errorf("wait for containers ready: %s", err)
 	}
 
+	err = w.setupLogging(ctx)
+	if err != nil {
+		return fmt.Errorf("setup logging: %s", err)
+	}
+
 	err = w.removeUnusedImages(ctx, w.instance.Containers...)
 	if err != nil {
 		return fmt.Errorf("remove unused images: %s", err)
@@ -154,13 +179,19 @@ func (w *executor) Apply(ctx context.Context) error {
 }
 
 // Remove removes plugin from containerd, perform the following steps:
-// 1. upload clean_containers required images to containerd.
-// 2. remove all containers in the containerd namespace.
-// 3. start and wait clean_containers, kill the container after timeout.
-// 4. remove all containers and images in the namespace.
-// 5. remove the namespace from containerd.
+// 1. remove container logging config.
+// 2. upload clean_containers required images to containerd.
+// 3. remove all containers in the containerd namespace.
+// 4. start and wait clean_containers, kill the container after timeout.
+// 5. remove all containers and images in the namespace.
+// 6. remove the namespace from containerd.
 func (w *executor) Remove(ctx context.Context) error {
-	err := w.removeContainersInNamespace(ctx)
+	err := w.removeLogging(ctx)
+	if err != nil {
+		return fmt.Errorf("remove logging: %s", err)
+	}
+
+	err = w.removeContainersInNamespace(ctx)
 	if err != nil {
 		return fmt.Errorf("remove containers: %s", err)
 	}
@@ -380,6 +411,20 @@ func (w *executor) removeUnusedImages(ctx context.Context, exceptImagesInContain
 	return nil
 }
 
+func (w *executor) setupLogging(ctx context.Context) error {
+	if w.logging == nil {
+		return nil
+	}
+	return w.logging.SetupLogging(ctx)
+}
+
+func (w *executor) removeLogging(ctx context.Context) error {
+	if w.logging == nil {
+		return nil
+	}
+	return w.logging.RemoveLogging(ctx)
+}
+
 // we reuse the checkClient to reuse the tcp connection
 // #nosec G402
 var checkClient = &http.Client{
@@ -481,6 +526,10 @@ func toRuntimeContainer(apiContainer *model.ContainerDefinition, restartPolicy m
 			LogPath:       apiContainer.Process.LogPath,
 			RestartPolicy: restartPolicy,
 		},
+	}
+
+	if apiContainer.Logging != nil && apiContainer.Logging.Path != "" {
+		c.Process.LogPath = apiContainer.Logging.Path
 	}
 
 	if apiContainer.Resources != nil {

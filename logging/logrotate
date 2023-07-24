@@ -1,0 +1,12 @@
+{{ range . -}}
+{{ .Path }} {
+  su root root
+  rotate {{ .MaxFile }}
+  size {{ .MaxSize }}M
+  copytruncate
+  compress
+  missingok
+  notifempty
+}
+
+{{ end -}}

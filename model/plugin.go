@@ -32,6 +32,7 @@ type ContainerDefinition struct {
 	Image         string              `yaml:"image"`
 	Mounts        []MountDefinition   `yaml:"mounts,omitempty"`
 	Process       ProcessDefinition   `yaml:"process"`
+	Logging       *LoggingDefinition  `yaml:"logging,omitempty"`
 	Resources     *ResourceDefinition `yaml:"resources,omitempty"`
 	StartupProbe  *ContainerProbe     `yaml:"startup_probe,omitempty"`
 	LivenessProbe *ContainerProbe     `yaml:"liveness_probe,omitempty"`
@@ -50,7 +51,14 @@ type ProcessDefinition struct {
 	Args       []string `yaml:"args,omitempty"`
 	Env        []string `yaml:"env,omitempty"`
 	WorkingDir string   `yaml:"working_dir,omitempty"`
-	LogPath    string   `yaml:"log_path,omitempty"`
+	LogPath    string   `yaml:"log_path,omitempty"` // Deprecated, use LoggingDefinition.Path
+}
+
+// LoggingDefinition of the plugin containers
+type LoggingDefinition struct {
+	Path    string `yaml:"path,omitempty"`
+	MaxSize uint64 `yaml:"max_size,omitempty"` // MB
+	MaxFile uint64 `yaml:"max_file,omitempty"`
 }
 
 type ResourceDefinition struct {

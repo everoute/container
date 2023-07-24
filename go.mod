@@ -3,7 +3,7 @@ module github.com/everoute/container
 go 1.17
 
 require (
-	github.com/alessio/shellescape v1.4.1
+	github.com/alessio/shellescape v1.4.2
 	github.com/containerd/containerd v1.6.16
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/evanphx/json-patch v5.6.0+incompatible

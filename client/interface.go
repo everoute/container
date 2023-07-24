@@ -31,6 +31,10 @@ type Runtime interface {
 	ContainerManager
 	io.Closer
 
+	// Namespace of the current runtime in
+	Namespace() string
+	// NodeExecute execute commands on the runtime node
+	NodeExecute(ctx context.Context, name string, commands ...string) error
 	// ConfigRuntime config container runtime
 	ConfigRuntime(ctx context.Context) error
 	// RemoveNamespace delete runtime namespace

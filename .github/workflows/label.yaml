@@ -4,7 +4,7 @@ on: [pull_request_target]
 
 jobs:
   labeler:
-    runs-on: self-hosted
+    runs-on: ubuntu-20.04
     permissions:
       issues: write
       pull-requests: write

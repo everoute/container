@@ -19,6 +19,7 @@ package clienttest
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/containerd/containerd"
@@ -41,6 +42,17 @@ func NewRuntime(followWaitTime time.Duration) client.Runtime {
 		images:         make(map[string]images.Image),
 		containers:     make(map[string]*model.Container),
 	}
+}
+
+func (r *runtime) Namespace() string {
+	return "unknown"
+}
+
+func (r *runtime) NodeExecute(ctx context.Context, name string, commands ...string) error {
+	if len(commands) == 0 {
+		return nil
+	}
+	return exec.CommandContext(ctx, commands[0], commands[1:]...).Run()
 }
 
 func (r *runtime) ImportImages(ctx context.Context, refs ...string) error {

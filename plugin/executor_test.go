@@ -33,7 +33,7 @@ func TestHostPluginExecutorPrecheck(t *testing.T) {
 	t.Run("should do check with some precheck containers", func(t *testing.T) {
 		RegisterTestingT(t)
 
-		executor := plugin.New(clienttest.NewRuntime(time.Second), "log-prefix: ", &model.PluginInstanceDefinition{
+		executor := plugin.New(clienttest.NewRuntime(time.Second), &model.PluginInstanceDefinition{
 			PrecheckContainers: []model.ContainerDefinition{
 				newContainerDefinition(rand.String(10), rand.String(10)),
 			},
@@ -45,7 +45,7 @@ func TestHostPluginExecutorPrecheck(t *testing.T) {
 	t.Run("should do check without any precheck containers", func(t *testing.T) {
 		RegisterTestingT(t)
 
-		executor := plugin.New(clienttest.NewRuntime(time.Second), "log-prefix", &model.PluginInstanceDefinition{})
+		executor := plugin.New(clienttest.NewRuntime(time.Second), &model.PluginInstanceDefinition{})
 		err := executor.Precheck(context.Background())
 		Expect(err).ShouldNot(HaveOccurred())
 	})
@@ -57,7 +57,7 @@ func TestHostPluginExecutorPrecheck(t *testing.T) {
 		precheckContainer := newContainerDefinition(rand.String(10), rand.String(10))
 		container := &model.Container{Name: precheckContainer.Name, Image: precheckContainer.Image}
 
-		executor := plugin.New(runtime, "log-prefix", &model.PluginInstanceDefinition{
+		executor := plugin.New(runtime, &model.PluginInstanceDefinition{
 			PrecheckContainers: []model.ContainerDefinition{precheckContainer},
 		})
 		Expect(runtime.CreateContainer(context.Background(), container, false)).ShouldNot(HaveOccurred())
@@ -69,7 +69,7 @@ func TestHostPluginExecutorPrecheck(t *testing.T) {
 func TestHostPluginExecutorApply(t *testing.T) {
 	ctx := context.Background()
 	runtime := clienttest.NewRuntime(time.Microsecond)
-	executor := plugin.New(runtime, "log-prefix: ", &model.PluginInstanceDefinition{
+	executor := plugin.New(runtime, &model.PluginInstanceDefinition{
 		InitContainers: []model.ContainerDefinition{
 			newContainerDefinition(rand.String(10), rand.String(10)),
 			newContainerDefinition(rand.String(10), rand.String(10)),
@@ -103,7 +103,7 @@ func TestHostPluginExecutorApply(t *testing.T) {
 func TestHostPluginExecutorRemove(t *testing.T) {
 	ctx := context.Background()
 	runtime := clienttest.NewRuntime(time.Microsecond)
-	executor := plugin.New(runtime, "log-prefix: ", &model.PluginInstanceDefinition{
+	executor := plugin.New(runtime, &model.PluginInstanceDefinition{
 		CleanContainers: []model.ContainerDefinition{
 			newContainerDefinition(rand.String(10), rand.String(10)),
 			newContainerDefinition(rand.String(10), rand.String(10)),
@@ -133,7 +133,7 @@ func TestHostPluginExecutorRemove(t *testing.T) {
 func TestHostPluginExecutorHealthProbe(t *testing.T) {
 	ctx := context.Background()
 	runtime := clienttest.NewRuntime(time.Microsecond)
-	executor := plugin.New(runtime, "log-prefix: ", &model.PluginInstanceDefinition{
+	executor := plugin.New(runtime, &model.PluginInstanceDefinition{
 		Containers: []model.ContainerDefinition{
 			newContainerDefinition(rand.String(10), rand.String(10)),
 			newContainerDefinition(rand.String(10), rand.String(10)),

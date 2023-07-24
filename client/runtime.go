@@ -140,6 +140,14 @@ func newTCPClient(ctx context.Context, endpoint string, tlsConfig *tls.Config, t
 	return containerd.NewWithConn(conn, containerd.WithTimeout(timeout))
 }
 
+func (r *runtime) Namespace() string {
+	return r.namespace
+}
+
+func (r *runtime) NodeExecute(ctx context.Context, name string, commands ...string) error {
+	return r.execHostCommand(ctx, name, commands...)
+}
+
 func (r *runtime) ConfigRuntime(ctx context.Context) error {
 	return r.doConfig(ctx)
 }
