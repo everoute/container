@@ -26,6 +26,12 @@ import (
 	"github.com/everoute/container/model"
 )
 
+const (
+	ENVRuntimeContainerName      = "RUNTIME_CONTAINER_NAME"
+	ENVRuntimeContainerNamespace = "RUNTIME_CONTAINER_NAMESPACE"
+	ENVRuntimeContainerImage     = "RUNTIME_CONTAINER_IMAGE"
+)
+
 type Runtime interface {
 	ImageManager
 	ContainerManager

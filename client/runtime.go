@@ -419,6 +419,7 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 	}
 	specOpts = append(specOpts, withRlimits(container.Rlimits))
 	specOpts = append(specOpts, withSpecPatches(container.SpecPatches))
+	specOpts = append(specOpts, withRuntimeENV(namespace, container))
 	return specOpts
 }
 
@@ -603,4 +604,12 @@ func ignoreNotFoundError(err error) error {
 		return nil
 	}
 	return err
+}
+
+func withRuntimeENV(namespace string, container *model.Container) oci.SpecOpts {
+	return oci.WithEnv([]string{
+		fmt.Sprintf("%s=%s", ENVRuntimeContainerNamespace, namespace),
+		fmt.Sprintf("%s=%s", ENVRuntimeContainerName, container.Name),
+		fmt.Sprintf("%s=%s", ENVRuntimeContainerImage, container.Image),
+	})
 }
