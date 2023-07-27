@@ -51,7 +51,7 @@ func (c *composeProvider) Resolve(ctx context.Context, ref string) (name string,
 			return
 		}
 		c.recorder.reset(ref)
-		errlist = append(errlist, fmt.Errorf("%s: %s", provider.Name(), provider))
+		errlist = append(errlist, fmt.Errorf("%s: %s", provider.Name(), err))
 	}
 
 	for _, provider := range c.providers {
@@ -60,7 +60,7 @@ func (c *composeProvider) Resolve(ctx context.Context, ref string) (name string,
 			c.recorder.set(ref, provider)
 			return
 		}
-		errlist = append(errlist, fmt.Errorf("%s: %s", provider.Name(), provider))
+		errlist = append(errlist, fmt.Errorf("%s: %s", provider.Name(), err))
 	}
 
 	if len(errlist) == 0 {
@@ -78,7 +78,7 @@ func (c *composeProvider) Fetcher(ctx context.Context, ref string) (remotes.Fetc
 			return fetcher, nil
 		}
 		c.recorder.reset(ref)
-		errlist = append(errlist, fmt.Errorf("%s: %s", provider.Name(), provider))
+		errlist = append(errlist, fmt.Errorf("%s: %s", provider.Name(), err))
 	}
 
 	for _, provider := range c.providers {
@@ -87,7 +87,7 @@ func (c *composeProvider) Fetcher(ctx context.Context, ref string) (remotes.Fetc
 			c.recorder.set(ref, provider)
 			return fetcher, nil
 		}
-		errlist = append(errlist, fmt.Errorf("%s: %s", provider.Name(), provider))
+		errlist = append(errlist, fmt.Errorf("%s: %s", provider.Name(), err))
 	}
 
 	if len(errlist) == 0 {
