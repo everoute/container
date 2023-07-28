@@ -88,7 +88,6 @@ func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...
 	specOpts := append(
 		containerSpecOpts(r.namespace, nil, &model.Container{Name: name}),
 		oci.WithHostNamespace(specs.PIDNamespace),
-		oci.WithRootFSReadonly(),
 		oci.WithRootFSPath("rootfs"),
 		oci.WithPrivileged,
 		oci.WithProcessCwd("/"),
@@ -99,7 +98,7 @@ func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...
 				Type:        "rbind",
 				Destination: "/",
 				Source:      "/",
-				Options:     []string{"rbind", "ro"},
+				Options:     []string{"rbind"},
 			},
 			{
 				Type:        "tmpfs",

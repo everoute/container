@@ -96,12 +96,12 @@ func (l *logrotate) SetupLogging(ctx context.Context) error {
 		printQuotef("echo %s | base64 -d > %s", dropInConfig, filepath.Join(l.dropInConfigDir, l.runtime.Namespace())),
 	)
 
-	containerName := "setup-logging-%s" + uuid.New().String()
+	containerName := "setup-logging-" + uuid.New().String()
 	return l.runtime.NodeExecute(ctx, containerName, commands...)
 }
 
 func (l *logrotate) RemoveLogging(ctx context.Context) error {
-	containerName := "remove-logging-%s" + uuid.New().String()
+	containerName := "remove-logging-" + uuid.New().String()
 	return l.runtime.NodeExecute(ctx, containerName, "rm", "-f", filepath.Join(l.dropInConfigDir, l.runtime.Namespace()))
 }
 
