@@ -613,3 +613,15 @@ func withRuntimeENV(namespace string, container *model.Container) oci.SpecOpts {
 		fmt.Sprintf("%s=%s", ENVRuntimeContainerImage, container.Image),
 	})
 }
+
+type terminalIO struct{ cio.IO }
+
+func (t *terminalIO) Config() cio.Config {
+	config := t.IO.Config()
+	return cio.Config{
+		Terminal: true,
+		Stdin:    config.Stdin,
+		Stdout:   config.Stdout,
+		Stderr:   config.Stderr,
+	}
+}

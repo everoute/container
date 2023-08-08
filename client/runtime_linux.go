@@ -47,6 +47,19 @@ func (r *runtime) enableMayDetachMounts(ctx context.Context) error {
 }
 
 func (r *runtime) newTask(ctx context.Context, container containerd.Container, creator cio.Creator) (containerd.Task, error) {
+	spec, err := container.Spec(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if spec != nil && spec.Process != nil && spec.Process.Terminal {
+		origin := creator
+		creator = func(id string) (cio.IO, error) {
+			io, err := origin(id)
+			return &terminalIO{IO: io}, err
+		}
+	}
+
 	task, err := container.NewTask(ctx, creator)
 	if err == nil {
 		return task, nil
