@@ -548,6 +548,10 @@ func withLogPath(logPath string) func(ctx context.Context, client *containerd.Cl
 			c.Labels = make(map[string]string)
 		}
 
+		if logPath == model.StdOutputStream {
+			return nil
+		}
+
 		uri, err := cio.LogURIGenerator("file", logPath, nil)
 		if err != nil {
 			return err
