@@ -56,6 +56,12 @@ type Container struct {
 	SpecPatches []json.RawMessage
 }
 
+const (
+	// StdOutputStream redirect output to the system stdout
+	// StdOutputStream are only available when connected to the local containerd
+	StdOutputStream string = "StdOutputStream"
+)
+
 type Process struct {
 	// Args specifies the binary and arguments for the application to execute.
 	Args []string

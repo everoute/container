@@ -23,6 +23,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -219,7 +220,12 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 		return fmt.Errorf("create container: %s", err)
 	}
 
-	task, err := r.newTask(ctx, nc, cio.LogFile(container.Process.LogPath))
+	creator := cio.LogFile(container.Process.LogPath)
+	if follow && container.Process.LogPath == model.StdOutputStream {
+		creator = cio.NewCreator(cio.WithStreams(nil, os.Stdout, os.Stderr))
+	}
+
+	task, err := r.newTask(ctx, nc, creator)
 	if err != nil {
 		return fmt.Errorf("create task: %s", err)
 	}
