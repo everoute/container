@@ -156,15 +156,22 @@ func (r *runtime) ConfigRuntime(ctx context.Context) error {
 func (r *runtime) ImportImages(ctx context.Context, refs ...string) error {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 
+	ctx, cancel, err := r.client.WithLease(ctx)
+	if err != nil {
+		return fmt.Errorf("add lease: %w", err)
+	}
+	defer cancel(ctx) //nolint: errcheck
+
 	for _, ref := range refs {
-		_, err := r.client.Pull(ctx, ref,
-			containerd.WithPlatformMatcher(r.platform),
-			containerd.WithResolver(r.resolver),
-			containerd.WithPullUnpack,
-			containerd.WithPullSnapshotter(containerd.DefaultSnapshotter),
-		)
+		// fix: pull with unpack do not fetch missing contents
+		img, err := r.client.Fetch(ctx, ref, containerd.WithPlatformMatcher(r.platform), containerd.WithResolver(r.resolver))
 		if err != nil {
 			return fmt.Errorf("import %s: %s", ref, err)
+		}
+
+		err = containerd.NewImageWithPlatform(r.client, img, r.platform).Unpack(ctx, containerd.DefaultSnapshotter)
+		if err != nil {
+			return fmt.Errorf("unpack %s: %s", ref, err)
 		}
 	}
 	return nil
