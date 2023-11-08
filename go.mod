@@ -7,8 +7,10 @@ require (
 	github.com/containerd/containerd v1.6.16
 	github.com/docker/distribution v2.7.1+incompatible
 	github.com/evanphx/json-patch v5.6.0+incompatible
+	github.com/gogo/protobuf v1.3.2
 	github.com/google/go-cmp v0.5.8
 	github.com/google/uuid v1.2.0
+	github.com/hashicorp/go-version v1.6.0
 	github.com/onsi/gomega v1.17.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.0.3-0.20211202183452-c5a74bcca799
@@ -30,7 +32,6 @@ require (
 	github.com/docker/go-events v0.0.0-20190806004212-e31b211e4f1c // indirect
 	github.com/go-logr/logr v1.2.2 // indirect
 	github.com/gogo/googleapis v1.4.0 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/klauspost/compress v1.11.13 // indirect
