@@ -18,6 +18,9 @@ package remotes_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"io"
 	"os"
 	"testing"
@@ -27,10 +30,16 @@ import (
 	"github.com/containerd/containerd/api/services/version/v1"
 	ptypes "github.com/gogo/protobuf/types"
 	. "github.com/onsi/gomega"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"go.uber.org/goleak"
 	"google.golang.org/grpc"
 
 	"github.com/everoute/container/remotes"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestFileProviderGet(t *testing.T) {
 	ctx := context.Background()
@@ -159,6 +168,37 @@ func TestFileProviderResolve(t *testing.T) {
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(string(desc.Digest)).Should(Equal("sha256:37378d19f032cd586790c085aa4f8878a6c51472740e74de16c56e5443a38f21"))
 		})
+	})
+}
+
+func TestFileProviderFetch(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("should fetch gzip layer from zstd blobs", func(t *testing.T) {
+		RegisterTestingT(t)
+
+		p := newFileProvider("testdata/example-noop-1.0.0-archive.tar")
+		_, desc, err := p.Resolve(ctx, "example.com/example/noop:1.0.0")
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(string(desc.Digest)).Should(Equal("sha256:19a86a862354fd7e79a9a09287ae6aa28439049eced176d4f492a3891d4f2b52"))
+
+		f, err := p.Fetcher(ctx, "example.com/example/noop:1.0.0")
+		Expect(err).ShouldNot(HaveOccurred())
+		reader, err := f.Fetch(ctx, desc)
+		Expect(err).ShouldNot(HaveOccurred())
+
+		var manifest ocispec.Manifest
+		Expect(json.NewDecoder(reader).Decode(&manifest)).ShouldNot(HaveOccurred())
+		Expect(reader.Close()).ShouldNot(HaveOccurred())
+		Expect(manifest.Layers).Should(HaveLen(1))
+
+		Expect(manifest.Layers[0].URLs).Should(HaveLen(1))
+		reader, err = f.Fetch(ctx, manifest.Layers[0])
+		Expect(err).ShouldNot(HaveOccurred())
+		s := sha256.New()
+		Expect(func() error { _, err = io.Copy(s, reader); return err }()).ShouldNot(HaveOccurred())
+		Expect(reader.Close()).ShouldNot(HaveOccurred())
+		Expect(hex.EncodeToString(s.Sum(nil))).Should(Equal(manifest.Layers[0].Digest.Encoded()))
 	})
 }
 
