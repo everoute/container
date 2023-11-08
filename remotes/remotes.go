@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -43,6 +44,11 @@ type Provider interface {
 
 	// Fetcher returns a new fetcher for the provided reference
 	Fetcher(ctx context.Context, ref string) (remotes.Fetcher, error)
+}
+
+// ContainerdClientInjectable can inject containerd client into provider
+type ContainerdClientInjectable interface {
+	WithContainerdClient(ctx context.Context, client *containerd.Client) error
 }
 
 // Store and interact with images

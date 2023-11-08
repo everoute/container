@@ -37,14 +37,31 @@ func NewContainerdProvider(endpoint, namespace string) Provider {
 	}
 }
 
+// NewLocalContainerdProvider provider images from local containerd but another namespace
+func NewLocalContainerdProvider(namespace string) Provider {
+	return &containerdProvider{
+		namespace: namespace,
+		timeout:   2 * time.Second,
+	}
+}
+
 // containerdProvider provide image from content
 type containerdProvider struct {
-	endpoint  string
+	endpoint string
+	client   *containerd.Client
+
 	namespace string
 	timeout   time.Duration
 }
 
 func (c *containerdProvider) Name() string { return "containerd provider" }
+
+func (c *containerdProvider) WithContainerdClient(ctx context.Context, client *containerd.Client) error {
+	if c.endpoint == "" {
+		c.client = client
+	}
+	return nil
+}
 
 func (c *containerdProvider) Resolve(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
 	err = c.executeOnContainerd(ctx, true, func(ctx context.Context, client *containerd.Client) error {
@@ -94,13 +111,21 @@ func (c *containerdProvider) Fetch(ctx context.Context, desc ocispec.Descriptor)
 type executeFunc func(ctx context.Context, client *containerd.Client) error
 
 func (c *containerdProvider) executeOnContainerd(ctx context.Context, close bool, f executeFunc) error {
-	client, err := containerd.New(c.endpoint, containerd.WithTimeout(c.timeout))
-	if err != nil {
-		return fmt.Errorf("connect to %s: %s", c.endpoint, err)
+	client := c.client
+
+	if c.client == nil && c.endpoint != "" {
+		var err error
+		client, err = containerd.New(c.endpoint, containerd.WithTimeout(c.timeout))
+		if err != nil {
+			return fmt.Errorf("connect to %s: %s", c.endpoint, err)
+		}
+		if close {
+			defer client.Close()
+		}
 	}
 
-	if close {
-		defer client.Close()
+	if client == nil {
+		return fmt.Errorf("no more containerd client")
 	}
 
 	ctx = namespaces.WithNamespace(ctx, c.namespace)
