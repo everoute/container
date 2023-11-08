@@ -18,10 +18,13 @@ package remotes
 
 import (
 	"archive/tar"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
+	"path/filepath"
 	"sort"
 
 	"github.com/containerd/containerd"
@@ -30,7 +33,9 @@ import (
 	"github.com/docker/distribution/reference"
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/hashicorp/go-version"
+	"github.com/klauspost/compress/zstd"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/pkg/errors"
 )
 
 // File provides an abstraction for anything like a file
@@ -49,7 +54,11 @@ const (
 
 	ImageArchiveTypeGzip = ocispec.MediaTypeImageLayerGzip
 	ImageArchiveTypeZstd = ocispec.MediaTypeImageLayerZstd
+
+	URISchemeZstd = "zstd"
 )
+
+var ErrNotFound = errors.New("not found")
 
 // NewFileProvider create a new file provider
 func NewFileProvider(file File) StoreProvider {
@@ -87,7 +96,40 @@ func (p *fileProvider) Fetcher(ctx context.Context, ref string) (remotes.Fetcher
 
 func (p *fileProvider) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
 	fileLocation := fmt.Sprintf("blobs/%s/%s", desc.Digest.Algorithm(), desc.Digest.Encoded())
-	return LookupFileInTARFile(p.file, fileLocation).Open()
+	reader, err := LookupFileInTARFile(p.file, fileLocation).Open()
+	if err == nil {
+		return reader, nil
+	}
+	if err != nil {
+		// NOTE: to reproducible generate gzip from zstd, gzip header should
+		// always be empty, and the default compress level should be used
+		if !errors.Is(err, ErrNotFound) || len(desc.URLs) == 0 || desc.MediaType != ocispec.MediaTypeImageLayerGzip {
+			return nil, err
+		}
+	}
+
+	for _, downloadURL := range desc.URLs {
+		u, err := url.ParseRequestURI(downloadURL)
+		if err != nil {
+			continue
+		}
+
+		switch u.Scheme { // //nolint: gocritic
+		case URISchemeZstd:
+			reader, err = LookupFileInTARFile(p.file, filepath.Join("blobs", u.Path)).Open()
+			if err != nil {
+				return nil, fmt.Errorf("read blobs %s: %w", u.Path, err)
+			}
+			greader, err := GzipReaderFromZstdUpstream(reader)
+			if err != nil {
+				_ = reader.Close()
+				return nil, fmt.Errorf("read gzip from zstd: %w", err)
+			}
+			return greader, nil
+		}
+	}
+
+	return nil, fmt.Errorf("digest %s not found: %w", desc.Digest, ErrNotFound)
 }
 
 func (p *fileProvider) Get(ctx context.Context, ref string) (images.Image, error) {
@@ -216,7 +258,7 @@ func LookupFileInTARFile(file File, fileName string) File {
 			if err != nil {
 				reader.Close()
 				if err == io.EOF {
-					return nil, fmt.Errorf("%s not found", fileName)
+					return nil, fmt.Errorf("%s not found: %w", fileName, ErrNotFound)
 				}
 				return nil, err
 			}
@@ -231,4 +273,28 @@ func LookupFileInTARFile(file File, fileName string) File {
 			}
 		}
 	})
+}
+
+func GzipReaderFromZstdUpstream(upstream io.ReadCloser) (io.ReadCloser, error) {
+	zreader, err := zstd.NewReader(upstream)
+	if err != nil {
+		return nil, fmt.Errorf("open zstd stream: %w", err)
+	}
+
+	pr, pw := io.Pipe()
+	greader := gzip.NewWriter(pw)
+	go func() {
+		_, err = io.Copy(greader, zreader)
+		zreader.Close()
+		greader.Close()
+		_ = pw.CloseWithError(err)
+	}()
+
+	return struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: pr,
+		Closer: multiCloser(pr, upstream),
+	}, nil
 }
