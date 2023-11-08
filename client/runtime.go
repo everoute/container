@@ -114,6 +114,13 @@ func NewRuntime(ctx context.Context, opt Options) (Runtime, error) {
 		return nil, err
 	}
 
+	if injectable, ok := opt.Provider.(remotes.ContainerdClientInjectable); ok {
+		err = injectable.WithContainerdClient(ctx, client)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	r := &runtime{
 		platform:  platform,
 		namespace: opt.Namespace,

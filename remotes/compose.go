@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
@@ -41,6 +42,18 @@ type composeProvider struct {
 }
 
 func (c *composeProvider) Name() string { return "compose provider" }
+
+func (c *composeProvider) WithContainerdClient(ctx context.Context, client *containerd.Client) error {
+	for _, provider := range c.providers {
+		if injectable, ok := provider.(ContainerdClientInjectable); ok {
+			err := injectable.WithContainerdClient(ctx, client)
+			if err != nil {
+				return fmt.Errorf("inject containerd client to %s: %w", provider.Name(), err)
+			}
+		}
+	}
+	return nil
+}
 
 func (c *composeProvider) Resolve(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
 	var errlist []error
