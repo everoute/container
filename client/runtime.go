@@ -76,6 +76,10 @@ func NewRuntime(ctx context.Context, opt Options) (Runtime, error) {
 	var err error
 	var platform platforms.MatchComparer
 
+	if opt.Endpoint == "" {
+		opt.Endpoint = "/run/containerd/containerd.sock"
+	}
+
 	if opt.Namespace == "" {
 		opt.Namespace = "default"
 	}
@@ -148,9 +152,8 @@ func newTCPClient(ctx context.Context, endpoint string, tlsConfig *tls.Config, t
 	return containerd.NewWithConn(conn, containerd.WithTimeout(timeout))
 }
 
-func (r *runtime) Namespace() string {
-	return r.namespace
-}
+func (r *runtime) ContainerdClient() *containerd.Client { return r.client }
+func (r *runtime) Namespace() string                    { return r.namespace }
 
 func (r *runtime) NodeExecute(ctx context.Context, name string, commands ...string) error {
 	return r.execHostCommand(ctx, name, commands...)
