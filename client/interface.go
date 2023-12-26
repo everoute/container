@@ -47,6 +47,10 @@ type Runtime interface {
 	RemoveNamespace(ctx context.Context) error
 }
 
+type ContainerdClientProvider interface {
+	ContainerdClient() *containerd.Client
+}
+
 // ImageManager contains methods to manipulate images. The methods are thread-safe.
 type ImageManager interface {
 	// ImportImages imports specify images to containerd

@@ -179,14 +179,21 @@ func (w *executor) Apply(ctx context.Context) error {
 }
 
 // Remove removes plugin from containerd, perform the following steps:
-// 1. remove container logging config.
-// 2. upload clean_containers required images to containerd.
-// 3. remove all containers in the containerd namespace.
-// 4. start and wait clean_containers, kill the container after timeout.
-// 5. remove all containers and images in the namespace.
-// 6. remove the namespace from containerd.
+// 1. check if the namespace has been removed.
+// 2. remove container logging config.
+// 3. upload clean_containers required images to containerd.
+// 4. remove all containers in the containerd namespace.
+// 5. start and wait clean_containers, kill the container after timeout.
+// 6. remove all containers and images in the namespace.
+// 7. remove the namespace from containerd.
 func (w *executor) Remove(ctx context.Context) error {
-	err := w.removeLogging(ctx)
+	exist, err := namespaceExist(ctx, w.runtime)
+	if err == nil && !exist {
+		// do nothing on remove when namespace not exist
+		return nil
+	}
+
+	err = w.removeLogging(ctx)
 	if err != nil {
 		return fmt.Errorf("remove logging: %s", err)
 	}
@@ -558,4 +565,17 @@ func toRuntimeContainer(apiContainer *model.ContainerDefinition, restartPolicy m
 	}
 
 	return c.Complete()
+}
+
+func namespaceExist(ctx context.Context, runtime client.Runtime) (bool, error) {
+	cp, ok := runtime.(client.ContainerdClientProvider)
+	if !ok {
+		return false, fmt.Errorf("require containerd client")
+	}
+
+	namespaces, err := cp.ContainerdClient().NamespaceService().List(ctx)
+	if err != nil {
+		return false, err
+	}
+	return sets.NewString(namespaces...).Has(runtime.Namespace()), nil
 }
