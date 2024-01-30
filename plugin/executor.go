@@ -459,7 +459,8 @@ func (w *executor) doCheck(ctx context.Context, containerName string, probe *mod
 		if resp.StatusCode < 500 && resp.StatusCode >= 100 {
 			return nil
 		}
-		return fmt.Errorf("unexpect http response code: %d", resp.StatusCode)
+		out, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpect http response code: %d, playload: %s", resp.StatusCode, string(out))
 	}
 
 	if len(probe.ExecCommand) != 0 {
