@@ -30,7 +30,7 @@ type Runables struct {
 }
 
 // Push one runable function to Runables
-func (r *Runables) Push(f func(ctx context.Context) error) {
+func (r *Runables) Push(f func(ctx context.Context) error) *Runables {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -39,6 +39,7 @@ func (r *Runables) Push(f func(ctx context.Context) error) {
 	}
 
 	r.runables = append(r.runables, f)
+	return r
 }
 
 // Run the runable functions and collect the errors

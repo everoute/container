@@ -45,7 +45,7 @@ func NewGroup(maxConcurrentNum int) *Group {
 }
 
 // Go start a new task
-func (g *Group) Go(fn func() error) {
+func (g *Group) Go(fn func() error) *Group {
 	g.waitGroup.Add(1)
 
 	go func() {
@@ -70,6 +70,8 @@ func (g *Group) Go(fn func() error) {
 			g.errLock.Unlock()
 		}
 	}()
+
+	return g
 }
 
 // WaitResult wait for tasks done, and return the result
