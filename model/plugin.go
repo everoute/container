@@ -34,6 +34,7 @@ type ContainerDefinition struct {
 	Process       ProcessDefinition   `yaml:"process"`
 	Logging       *LoggingDefinition  `yaml:"logging,omitempty"`
 	Resources     *ResourceDefinition `yaml:"resources,omitempty"`
+	Runtime       *RuntimeDefinition  `yaml:"runtime,omitempty"`
 	StartupProbe  *ContainerProbe     `yaml:"startup_probe,omitempty"`
 	LivenessProbe *ContainerProbe     `yaml:"liveness_probe,omitempty"`
 	SpecPatches   []string            `yaml:"spec_patches,omitempty"`
@@ -69,6 +70,12 @@ type ResourceDefinition struct {
 	CPUQuota     int64         `yaml:"cpu_quota,omitempty"`
 	Capabilities []string      `yaml:"capabilities,omitempty"`
 	Rlimits      []POSIXRlimit `yaml:"rlimits,omitempty"`
+}
+
+type RuntimeDefinition struct {
+	NoPivotRoot   bool   `yaml:"no_pivot_root,omitempty"`
+	BinaryName    string `yaml:"binary_name,omitempty"`
+	SystemdCgroup bool   `yaml:"systemd_cgroup,omitempty"`
 }
 
 type POSIXRlimit struct {

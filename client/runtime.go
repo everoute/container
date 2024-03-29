@@ -32,13 +32,14 @@ import (
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/defaults"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/runtime/restart"
+	"github.com/containerd/containerd/runtime/v2/runc/options"
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
@@ -59,6 +60,7 @@ type runtime struct {
 	namespace string
 	client    *containerd.Client
 	resolver  remotes.Resolver
+	runcPath  string
 }
 
 // Options to build a new Runtime
@@ -230,7 +232,7 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 		containerd.WithImageName(container.Image),
 		withNewSnapshotAndConfig(image, container.ConfigContent),
 		withLogPath(container.Process.LogPath),
-		containerd.WithRuntime(defaults.DefaultRuntime, nil),
+		withRuntime(r.runcPath, container),
 		containerd.WithNewSpec(containerSpecOpts(r.namespace, image, container)...),
 	)
 	if err != nil {
@@ -624,6 +626,18 @@ func withSpecPatch(specPatch json.RawMessage) oci.SpecOpts {
 		}
 		return json.Unmarshal(patSpec, spec)
 	}
+}
+
+func withRuntime(defaultRuncPath string, container *model.Container) containerd.NewContainerOpts {
+	binaryName := container.Runtime.BinaryName
+	if binaryName == "" {
+		binaryName = defaultRuncPath
+	}
+	return containerd.WithRuntime(plugin.RuntimeRuncV2, &options.Options{
+		NoPivotRoot:   container.Runtime.NoPivotRoot,
+		BinaryName:    binaryName,
+		SystemdCgroup: container.Runtime.SystemdCgroup,
+	})
 }
 
 func ignoreNotFoundError(err error) error {
