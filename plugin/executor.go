@@ -552,6 +552,14 @@ func toRuntimeContainer(apiContainer *model.ContainerDefinition, restartPolicy m
 		}
 	}
 
+	if apiContainer.Runtime != nil {
+		c.Runtime = model.Runtime{
+			NoPivotRoot:   apiContainer.Runtime.NoPivotRoot,
+			BinaryName:    apiContainer.Runtime.BinaryName,
+			SystemdCgroup: apiContainer.Runtime.SystemdCgroup,
+		}
+	}
+
 	for _, specPatch := range apiContainer.SpecPatches {
 		c.SpecPatches = append(c.SpecPatches, []byte(specPatch))
 	}

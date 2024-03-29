@@ -51,6 +51,8 @@ type Container struct {
 	Capabilities []string
 	// Rlimits specifies rlimit options to apply to the process.
 	Rlimits []specs.POSIXRlimit
+	// Runtime configures the container runtime.
+	Runtime Runtime
 	// SpecPatches is a list of jsonpatch for container oci spec.
 	// The patches applied in order.
 	SpecPatches []json.RawMessage
@@ -74,6 +76,12 @@ type Process struct {
 	LogPath string
 	// RestartPolicy to apply when a container exits.
 	RestartPolicy RestartPolicy
+}
+
+type Runtime struct {
+	NoPivotRoot   bool
+	BinaryName    string
+	SystemdCgroup bool
 }
 
 // RestartPolicy describes how the container should be restarted.

@@ -29,7 +29,6 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
-	"github.com/containerd/containerd/plugin"
 	"github.com/google/uuid"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -38,7 +37,17 @@ import (
 )
 
 func (r *runtime) doPlatformConfig(ctx context.Context) error {
+	r.setDefaultRuncPath(ctx)
 	return r.enableMayDetachMounts(ctx)
+}
+
+func (r *runtime) setDefaultRuncPath(ctx context.Context) {
+	// NOTE: prioritize to use containerd runc path /usr/bin/runc
+	const containerdRuncPath = "/usr/bin/runc"
+	err := r.execHostCommand(ctx, "check_runc_path_"+uuid.New().String(), "test", "-f", containerdRuncPath)
+	if err == nil {
+		r.runcPath = containerdRuncPath
+	}
 }
 
 // In some version of OS, containers may not be destroyed correctly, if fs.may_detach_mounts is not set.
@@ -108,7 +117,7 @@ func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...
 			},
 		}),
 	)
-	nc, err := r.client.NewContainer(ctx, name, containerd.WithRuntime(plugin.RuntimeRuncV2, nil), containerd.WithNewSpec(specOpts...))
+	nc, err := r.client.NewContainer(ctx, name, withRuntime(r.runcPath, &model.Container{Name: name}), containerd.WithNewSpec(specOpts...))
 	if err != nil {
 		return fmt.Errorf("create container: %s", err)
 	}
