@@ -8,9 +8,15 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
+      - name: setup golang from container image
+        run: |
+          rm -rf /usr/local/go
+          docker run --rm -v /usr/local:/sys_usr_local golang:1.17 cp -r /usr/local/go /sys_usr_local/
+          echo "PATH=/usr/local/go/bin:${PATH}" >> $GITHUB_ENV
       - uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.52
+          version: v1.56
+          only-new-issues: true
           skip-pkg-cache: true
           skip-build-cache: true # skip cache because of flaky behaviors
 
