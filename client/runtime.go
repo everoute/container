@@ -423,7 +423,7 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 	var specOpts []oci.SpecOpts
 	specOpts = append(specOpts, oci.WithProcessCwd(container.Process.WorkingDir))
 	specOpts = append(specOpts, oci.WithProcessArgs(container.Process.Args...))
-	specOpts = append(specOpts, oci.WithCgroup(path.Join(container.CgroupParent, namespace, container.Name)))
+	specOpts = append(specOpts, withCgroupParent(namespace, container))
 	specOpts = append(specOpts, oci.WithEnv(container.Process.Env))
 	specOpts = append(specOpts, oci.WithDefaultPathEnv)
 	specOpts = append(specOpts, oci.WithMounts(container.Mounts))
@@ -638,6 +638,13 @@ func withRuntime(defaultRuncPath string, container *model.Container) containerd.
 		BinaryName:    binaryName,
 		SystemdCgroup: container.Runtime.SystemdCgroup,
 	})
+}
+
+func withCgroupParent(namespace string, container *model.Container) oci.SpecOpts {
+	if container.Runtime.SystemdCgroup {
+		return oci.WithCgroup(container.CgroupParent)
+	}
+	return oci.WithCgroup(path.Join(container.CgroupParent, namespace, container.Name))
 }
 
 func ignoreNotFoundError(err error) error {
