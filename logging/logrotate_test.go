@@ -68,7 +68,8 @@ func TestSetupLogging(t *testing.T) {
 
 		provider := factory.ProviderFor(runtime, &model.PluginInstanceDefinition{Containers: []model.ContainerDefinition{
 			{Logging: &model.LoggingDefinition{Path: "/path/to/log01", MaxSize: 20, MaxFile: 10}},
-			{Logging: &model.LoggingDefinition{Path: "/path/to/log02", MaxSize: 20, MaxFile: 10}},
+			{Logging: &model.LoggingDefinition{Path: "/path/to/log01", Includes: []string{"/path/to/log11"}, MaxSize: 20, MaxFile: 10}},
+			{Logging: &model.LoggingDefinition{Path: "/path/to/log02", Includes: []string{"/path/to/log21", "/path/to/log22"}, MaxSize: 20, MaxFile: 10}},
 		}})
 		Expect(provider.SetupLogging(ctx)).ShouldNot(HaveOccurred())
 
@@ -79,6 +80,9 @@ func TestSetupLogging(t *testing.T) {
 		out, err = ioutil.ReadFile(configPath + ".d/" + runtime.Namespace())
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(string(out)).ShouldNot(BeEmpty())
+		raw, err := os.ReadFile("testdata/rotate.conf")
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(string(raw)).Should(Equal(string(out)))
 	})
 }
 
