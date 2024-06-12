@@ -57,9 +57,10 @@ type ProcessDefinition struct {
 
 // LoggingDefinition of the plugin containers
 type LoggingDefinition struct {
-	Path    string `yaml:"path,omitempty"`
-	MaxSize uint64 `yaml:"max_size,omitempty"` // MB
-	MaxFile uint64 `yaml:"max_file,omitempty"`
+	Path     string   `yaml:"path,omitempty"`
+	Includes []string `yaml:"includes,omitempty"` // Includes log files to rotate
+	MaxSize  uint64   `yaml:"max_size,omitempty"` // MB
+	MaxFile  uint64   `yaml:"max_file,omitempty"`
 }
 
 type ResourceDefinition struct {
