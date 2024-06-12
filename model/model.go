@@ -49,6 +49,8 @@ type Container struct {
 	Privilege bool
 	// Capabilities required by container
 	Capabilities []string
+	// Devices required by container
+	Devices []string
 	// Rlimits specifies rlimit options to apply to the process.
 	Rlimits []specs.POSIXRlimit
 	// Runtime configures the container runtime.

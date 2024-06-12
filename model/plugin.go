@@ -70,6 +70,11 @@ type ResourceDefinition struct {
 	CPUQuota     int64         `yaml:"cpu_quota,omitempty"`
 	Capabilities []string      `yaml:"capabilities,omitempty"`
 	Rlimits      []POSIXRlimit `yaml:"rlimits,omitempty"`
+
+	// Note: devices major and minor read from the client node
+	// This can produce errors when the client and containerd on the different nodes
+	// Use mounts and enable privileged to access devices in this case
+	Devices []string `yaml:"devices,omitempty"`
 }
 
 type RuntimeDefinition struct {
