@@ -384,7 +384,7 @@ func (r *runtime) ExecCommand(ctx context.Context, containerID string, commands 
 	progressSpec.Terminal = false
 	progressSpec.Args = commands
 
-	progress, err := task.Exec(ctx, taskExecID, progressSpec, cio.NullIO)
+	progress, err := task.Exec(ctx, taskExecID, progressSpec, cio.LogFile(os.DevNull))
 	if err != nil {
 		return nil, fmt.Errorf("exec command: %s", err)
 	}
