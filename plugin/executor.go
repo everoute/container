@@ -547,6 +547,7 @@ func toRuntimeContainer(apiContainer *model.ContainerDefinition, restartPolicy m
 		c.CPUQuota = apiContainer.Resources.CPUQuota
 		c.Privilege = apiContainer.Resources.Privileged
 		c.Capabilities = apiContainer.Resources.Capabilities
+		c.Devices = apiContainer.Resources.Devices
 		for _, rlimit := range apiContainer.Resources.Rlimits {
 			c.Rlimits = append(c.Rlimits, specs.POSIXRlimit{Type: rlimit.Type, Hard: rlimit.Hard, Soft: rlimit.Soft})
 		}

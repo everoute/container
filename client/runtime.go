@@ -433,6 +433,9 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 		specOpts = append(specOpts, oci.WithPrivileged)
 	}
 	specOpts = append(specOpts, oci.WithAddedCapabilities(container.Capabilities))
+	for _, device := range container.Devices {
+		specOpts = append(specOpts, oci.WithDevices(device, "", "rwm"))
+	}
 	if img != nil {
 		specOpts = append(specOpts, withImageENV(img))
 	}
