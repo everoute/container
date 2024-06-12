@@ -434,7 +434,11 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 	}
 	specOpts = append(specOpts, oci.WithAddedCapabilities(container.Capabilities))
 	for _, device := range container.Devices {
-		specOpts = append(specOpts, oci.WithDevices(device, "", "rwm"))
+		devicePath, containerPath := device, ""
+		if strings.Contains(device, ":") {
+			devicePath, containerPath = strings.Split(device, ":")[0], strings.Split(device, ":")[1]
+		}
+		specOpts = append(specOpts, oci.WithDevices(devicePath, containerPath, "rwm"))
 	}
 	if img != nil {
 		specOpts = append(specOpts, withImageENV(img))
