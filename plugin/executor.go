@@ -34,6 +34,7 @@ import (
 
 	"github.com/everoute/container/client"
 	"github.com/everoute/container/logging"
+	"github.com/everoute/container/metrics"
 	"github.com/everoute/container/model"
 	"github.com/everoute/container/sync"
 )
@@ -77,11 +78,18 @@ func WithPluginLogging(factory logging.Factory) ExecutorOpt {
 	}
 }
 
+func WithPluginMetrics(factory metrics.Factory) ExecutorOpt {
+	return func(runtime client.Runtime, instance *model.PluginInstanceDefinition, w *executor) {
+		w.metrics = factory.ProviderFor(runtime, instance)
+	}
+}
+
 type executor struct {
 	instance  *model.PluginInstanceDefinition
 	logPrefix string
 	runtime   client.Runtime
 	logging   logging.Provider
+	metrics   metrics.Provider
 }
 
 func (w *executor) Close() error {
@@ -169,6 +177,11 @@ func (w *executor) Apply(ctx context.Context) error {
 		return fmt.Errorf("setup logging: %s", err)
 	}
 
+	err = w.setupMetrics(ctx)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %s", err)
+	}
+
 	err = w.removeUnusedImages(ctx, w.instance.Containers...)
 	if err != nil {
 		return fmt.Errorf("remove unused images: %s", err)
@@ -196,6 +209,11 @@ func (w *executor) Remove(ctx context.Context) error {
 	err = w.removeLogging(ctx)
 	if err != nil {
 		return fmt.Errorf("remove logging: %s", err)
+	}
+
+	err = w.removeMetrics(ctx)
+	if err != nil {
+		return fmt.Errorf("remove metrics: %s", err)
 	}
 
 	err = w.removeContainersInNamespace(ctx)
@@ -430,6 +448,20 @@ func (w *executor) removeLogging(ctx context.Context) error {
 		return nil
 	}
 	return w.logging.RemoveLogging(ctx)
+}
+
+func (w *executor) setupMetrics(ctx context.Context) error {
+	if w.metrics == nil {
+		return nil
+	}
+	return w.metrics.SetupMetrics(ctx)
+}
+
+func (w *executor) removeMetrics(ctx context.Context) error {
+	if w.metrics == nil {
+		return nil
+	}
+	return w.metrics.RemoveMetrics(ctx)
 }
 
 // we reuse the checkClient to reuse the tcp connection
