@@ -33,6 +33,7 @@ type ContainerDefinition struct {
 	Mounts        []MountDefinition   `yaml:"mounts,omitempty"`
 	Process       ProcessDefinition   `yaml:"process"`
 	Logging       *LoggingDefinition  `yaml:"logging,omitempty"`
+	Metrics       *MetricsDefinition  `yaml:"metrics,omitempty"`
 	Resources     *ResourceDefinition `yaml:"resources,omitempty"`
 	Runtime       *RuntimeDefinition  `yaml:"runtime,omitempty"`
 	StartupProbe  *ContainerProbe     `yaml:"startup_probe,omitempty"`
@@ -61,6 +62,13 @@ type LoggingDefinition struct {
 	Includes []string `yaml:"includes,omitempty"` // Includes log files to rotate
 	MaxSize  uint64   `yaml:"max_size,omitempty"` // MB
 	MaxFile  uint64   `yaml:"max_file,omitempty"`
+}
+
+type MetricsDefinition struct {
+	Endpoint  string        `yaml:"endpoint"`
+	Interval  time.Duration `yaml:"interval,omitempty"`
+	Timeout   time.Duration `yaml:"timeout,omitempty"`
+	TLSConfig *TLSConfig    `yaml:"tls_config,omitempty"`
 }
 
 type ResourceDefinition struct {
@@ -102,4 +110,11 @@ type PluginInstanceHealthResult struct {
 	LastHealthCheckTime time.Time `json:"last_health_check_time"`
 	UnHealthContainers  []string  `json:"un_health_containers,omitempty"`
 	UnHealthReason      string    `json:"un_health_reason,omitempty"`
+}
+
+type TLSConfig struct {
+	CAFile             string `yaml:"ca_file,omitempty"`
+	CrtFile            string `yaml:"crt_file,omitempty"`
+	KeyFile            string `yaml:"key_file,omitempty"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify,omitempty"`
 }
