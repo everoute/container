@@ -2,7 +2,7 @@
 {{ .Path }}{{ range $include_file := .Includes }} {{ $include_file }}{{ end }} {
   su root root
   rotate {{ .MaxFile }}
-  size {{ .MaxSize }}M
+  maxsize {{ .MaxSize }}M
   copytruncate
   compress
   missingok
