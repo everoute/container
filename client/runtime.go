@@ -65,11 +65,12 @@ type runtime struct {
 
 // Options to build a new Runtime
 type Options struct {
-	Endpoint  string           // containerd endpoint
-	Namespace string           // containerd namespace
-	TLSConfig *tls.Config      // containerd endpoint tls config
-	Timeout   time.Duration    // containerd connect timeout
-	Provider  remotes.Provider // containerd image provider
+	Endpoint  string             // containerd endpoint
+	Client    *containerd.Client // containerd client
+	Namespace string             // containerd namespace
+	TLSConfig *tls.Config        // containerd endpoint tls config
+	Timeout   time.Duration      // containerd connect timeout
+	Provider  remotes.Provider   // containerd image provider
 }
 
 // NewRuntime create a new instance of Runtime
@@ -97,17 +98,19 @@ func NewRuntime(ctx context.Context, opt Options) (Runtime, error) {
 	ctx, cancel := context.WithTimeout(ctx, opt.Timeout)
 	defer cancel()
 
-	// always close connection with containerd on error
+	// close connection when the client create in NewRuntime
 	defer func() {
-		if err != nil && client != nil {
+		if err != nil && opt.Client == nil && client != nil {
 			client.Close()
 		}
 	}()
 
-	// get containerd client from unix socket or tcp connection
-	if strings.HasPrefix(opt.Endpoint, "/") { // unix socket
+	switch {
+	case opt.Client != nil: // use client from options
+		client = opt.Client
+	case strings.HasPrefix(opt.Endpoint, "/"): // unix socket
 		client, err = containerd.New(opt.Endpoint, containerd.WithTimeout(opt.Timeout))
-	} else {
+	default:
 		client, err = newTCPClient(ctx, opt.Endpoint, opt.TLSConfig, opt.Timeout)
 	}
 	if err != nil {
