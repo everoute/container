@@ -7,6 +7,8 @@
   compress
   missingok
   notifempty
+  # use date as a suffix of the rotated file
+  dateext
 }
 
 {{ end -}}
