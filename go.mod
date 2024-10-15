@@ -1,6 +1,6 @@
 module github.com/everoute/container
 
-go 1.17
+go 1.19
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.10.1
@@ -18,6 +18,7 @@ require (
 	github.com/opencontainers/image-spec v1.0.3-0.20211202183452-c5a74bcca799
 	github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417
 	github.com/pkg/errors v0.9.1
+	github.com/samber/lo v1.39.0
 	go.uber.org/goleak v1.1.12
 	google.golang.org/grpc v1.50.1
 	k8s.io/apimachinery v0.22.5
@@ -44,6 +45,7 @@ require (
 	github.com/opencontainers/selinux v1.10.1 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	go.opencensus.io v0.23.0 // indirect
+	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17 // indirect
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect

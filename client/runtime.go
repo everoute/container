@@ -45,6 +45,7 @@ import (
 	"github.com/opencontainers/image-spec/identity"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -431,7 +432,14 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 	specOpts = append(specOpts, oci.WithDefaultPathEnv)
 	specOpts = append(specOpts, oci.WithMounts(container.Mounts))
 	specOpts = append(specOpts, oci.WithHostname("localhost"))
-	specOpts = append(specOpts, oci.WithHostNamespace(specs.NetworkNamespace), oci.WithHostHostsFile, oci.WithHostResolvconf)
+	specOpts = append(specOpts, oci.WithHostNamespace(specs.NetworkNamespace))
+	mountTargets := sets.NewString(lo.Map(container.Mounts, func(m specs.Mount, _ int) string { return m.Destination })...)
+	if !mountTargets.Has("/etc/hosts") {
+		specOpts = append(specOpts, oci.WithHostHostsFile)
+	}
+	if !mountTargets.Has("/etc/resolv.conf") {
+		specOpts = append(specOpts, oci.WithHostResolvconf)
+	}
 	if container.Privilege {
 		specOpts = append(specOpts, oci.WithPrivileged)
 	}
