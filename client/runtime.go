@@ -176,18 +176,18 @@ func (r *runtime) ImportImages(ctx context.Context, refs ...string) error {
 	if err != nil {
 		return fmt.Errorf("add lease: %w", err)
 	}
-	defer cancel(ctx) //nolint: errcheck
+	defer func() { _ = cancel(ctx) }()
 
 	for _, ref := range refs {
 		// fix: pull with unpack do not fetch missing contents
 		img, err := r.client.Fetch(ctx, ref, containerd.WithPlatformMatcher(r.platform), containerd.WithResolver(r.resolver))
 		if err != nil {
-			return fmt.Errorf("import %s: %s", ref, err)
+			return fmt.Errorf("import %s: %w", ref, err)
 		}
 
 		err = containerd.NewImageWithPlatform(r.client, img, r.platform).Unpack(ctx, containerd.DefaultSnapshotter)
 		if err != nil {
-			return fmt.Errorf("unpack %s: %s", ref, err)
+			return fmt.Errorf("unpack %s: %w", ref, err)
 		}
 	}
 	return nil
@@ -229,7 +229,7 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 
 	image, err := r.getImage(ctx, container.Image)
 	if err != nil {
-		return fmt.Errorf("get image %s: %s", container.Image, err)
+		return fmt.Errorf("get image %s: %w", container.Image, err)
 	}
 
 	nc, err := r.client.NewContainer(ctx, container.Name,
@@ -240,7 +240,7 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 		containerd.WithNewSpec(containerSpecOpts(r.namespace, image, container)...),
 	)
 	if err != nil {
-		return fmt.Errorf("create container: %s", err)
+		return fmt.Errorf("create container: %w", err)
 	}
 
 	creator := cio.LogFile(container.Process.LogPath)
@@ -250,7 +250,7 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 
 	task, err := r.newTask(ctx, nc, creator)
 	if err != nil {
-		return fmt.Errorf("create task: %s", err)
+		return fmt.Errorf("create task: %w", err)
 	}
 
 	if following {
@@ -283,7 +283,7 @@ func (r *runtime) RemoveContainer(ctx context.Context, containerID string) error
 		return err
 	}
 
-	_ = container.Update(ctx, func(ctx context.Context, client *containerd.Client, c *containers.Container) error {
+	_ = container.Update(ctx, func(_ context.Context, _ *containerd.Client, c *containers.Container) error {
 		delete(c.Labels, restart.StatusLabel)
 		return nil
 	})
@@ -321,7 +321,7 @@ func (r *runtime) ListContainers(ctx context.Context) ([]*model.Container, error
 	for _, c := range cs {
 		parsedContainer, err := parseContainer(c)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %s", c.ID, err)
+			return nil, fmt.Errorf("parse %s: %w", c.ID, err)
 		}
 		containerList = append(containerList, parsedContainer)
 	}
@@ -338,12 +338,12 @@ func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (c
 
 	c, err := r.client.LoadContainer(ctx, containerID)
 	if err != nil {
-		return containerd.Status{}, fmt.Errorf("load container: %s", err)
+		return containerd.Status{}, fmt.Errorf("load container: %w", err)
 	}
 
 	task, err := c.Task(ctx, nil)
 	if err != nil {
-		return containerd.Status{}, fmt.Errorf("load task: %s", err)
+		return containerd.Status{}, fmt.Errorf("load task: %w", err)
 	}
 
 	return task.Status(ctx)
@@ -354,17 +354,17 @@ func (r *runtime) ExecCommand(ctx context.Context, containerID string, commands 
 
 	c, err := r.client.LoadContainer(ctx, containerID)
 	if err != nil {
-		return nil, fmt.Errorf("load container: %s", err)
+		return nil, fmt.Errorf("load container: %w", err)
 	}
 
 	task, err := c.Task(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("load task: %s", err)
+		return nil, fmt.Errorf("load task: %w", err)
 	}
 
 	spec, err := c.Spec(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("load task spec: %s", err)
+		return nil, fmt.Errorf("load task spec: %w", err)
 	}
 
 	taskExecID := "exec-" + rand.String(10)
@@ -374,7 +374,7 @@ func (r *runtime) ExecCommand(ctx context.Context, containerID string, commands 
 
 	progress, err := task.Exec(ctx, taskExecID, progressSpec, cio.LogFile(os.DevNull))
 	if err != nil {
-		return nil, fmt.Errorf("exec command: %s", err)
+		return nil, fmt.Errorf("exec command: %w", err)
 	}
 	return ExecTask(ctx, progress)
 }
@@ -472,7 +472,7 @@ func toRawConfig(config []model.ConfigFile) []byte {
 }
 
 func withoutAnyMounts() oci.SpecOpts {
-	return func(ctx context.Context, client oci.Client, container *containers.Container, spec *oci.Spec) error {
+	return func(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
 		spec.Mounts = nil
 		return nil
 	}
@@ -503,7 +503,7 @@ func withNewSnapshotAndConfig(img containerd.Image, configContent []model.Config
 
 		err = content.WriteBlob(ctx, client.ContentStore(), ref, bytes.NewReader(data), descriptor)
 		if err != nil {
-			return fmt.Errorf("write config content: %s", err)
+			return fmt.Errorf("write config content: %w", err)
 		}
 
 		if _, err = client.DiffService().Apply(ctx, descriptor, mounts); err != nil {
@@ -517,7 +517,7 @@ func withNewSnapshotAndConfig(img containerd.Image, configContent []model.Config
 }
 
 func withImageENV(img containerd.Image) oci.SpecOpts {
-	return func(ctx context.Context, client oci.Client, c *containers.Container, s *oci.Spec) error {
+	return func(ctx context.Context, _ oci.Client, _ *containers.Container, s *oci.Spec) error {
 		ic, err := img.Config(ctx)
 		if err != nil {
 			return err
@@ -547,7 +547,7 @@ func withImageENV(img containerd.Image) oci.SpecOpts {
 }
 
 func withLogPath(logPath string) func(ctx context.Context, client *containerd.Client, c *containers.Container) error {
-	return func(ctx context.Context, client *containerd.Client, c *containers.Container) error {
+	return func(_ context.Context, _ *containerd.Client, c *containers.Container) error {
 		if c.Labels == nil {
 			c.Labels = make(map[string]string)
 		}
@@ -568,7 +568,7 @@ func withLogPath(logPath string) func(ctx context.Context, client *containerd.Cl
 }
 
 func withRlimits(rlimits []specs.POSIXRlimit) oci.SpecOpts {
-	return func(ctx context.Context, client oci.Client, container *containers.Container, spec *oci.Spec) error {
+	return func(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
 		if spec.Process == nil {
 			spec.Process = &specs.Process{}
 		}
@@ -593,21 +593,21 @@ func withSpecPatches(specPatches []json.RawMessage) oci.SpecOpts {
 }
 
 func withSpecPatch(specPatch json.RawMessage) oci.SpecOpts {
-	return func(ctx context.Context, client oci.Client, container *containers.Container, spec *oci.Spec) error {
+	return func(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
 		if len(specPatch) == 0 {
 			return nil
 		}
 		patch, err := jsonpatch.DecodePatch(specPatch)
 		if err != nil {
-			return fmt.Errorf("invalid spec-patch(%s): %s", string(specPatch), err)
+			return fmt.Errorf("invalid spec-patch(%s): %w", string(specPatch), err)
 		}
 		rawSpec, err := json.Marshal(spec)
 		if err != nil {
-			return fmt.Errorf("marshal spec as json: %s", err)
+			return fmt.Errorf("marshal spec as json: %w", err)
 		}
 		patSpec, err := patch.Apply(rawSpec)
 		if err != nil {
-			return fmt.Errorf("patch container spec: %s", err)
+			return fmt.Errorf("patch container spec: %w", err)
 		}
 		return json.Unmarshal(patSpec, spec)
 	}

@@ -119,13 +119,13 @@ func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...
 	)
 	nc, err := r.client.NewContainer(ctx, name, withRuntime(r.runcPath, &model.Container{Name: name}), containerd.WithNewSpec(specOpts...))
 	if err != nil {
-		return fmt.Errorf("create container: %s", err)
+		return fmt.Errorf("create container: %w", err)
 	}
 	defer nc.Delete(ctx)
 
 	task, err := nc.NewTask(ctx, cio.NullIO)
 	if err != nil {
-		return fmt.Errorf("create task: %s", err)
+		return fmt.Errorf("create task: %w", err)
 	}
 	return HandleTaskResult(ExecTask(ctx, task))
 }
