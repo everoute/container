@@ -127,23 +127,5 @@ func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...
 	if err != nil {
 		return fmt.Errorf("create task: %s", err)
 	}
-	defer task.Delete(ctx, containerd.WithProcessKill)
-
-	if err = task.Start(ctx); err != nil {
-		return fmt.Errorf("start task: %s", err)
-	}
-
-	status, _ := task.Wait(ctx)
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("context done: %s", ctx.Err())
-	case rs := <-status:
-		if rs.Error() != nil {
-			return fmt.Errorf("unexpected error: %s", rs.Error())
-		}
-		if rs.ExitCode() != 0 {
-			return fmt.Errorf("task exit with rc = %d", rs.ExitCode())
-		}
-		return nil
-	}
+	return HandleTaskResult(ExecTask(ctx, task))
 }
