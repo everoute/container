@@ -54,7 +54,7 @@ type ExitError struct {
 }
 
 func (e *ExitError) Error() string {
-	return fmt.Sprintf("task exit %d on %s", e.ExitCode, e.ExitTime)
+	return fmt.Sprintf("task exit %d on %s", e.ExitCode, e.ExitTime.Format("2006-01-02T15:04:05Z"))
 }
 
 func HandleTaskResult(status *containerd.ExitStatus, err error) error {
