@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"time"
 
@@ -64,7 +65,8 @@ func (r *runtime) newTask(ctx context.Context, container containerd.Container, c
 	// task already exists return "unknown" before containerd v1.6.0, see more: https://github.com/containerd/containerd/pull/6079
 	errorIsTaskExists := errdefs.IsAlreadyExists(err) ||
 		errors.Is(err, errdefs.ErrUnknown) && regexp.MustCompile(`task .* already exists: unknown$`).MatchString(err.Error()) ||
-		errors.Is(err, errdefs.ErrUnknown) && regexp.MustCompile(`container with id exists: .*: unknown$`).MatchString(err.Error())
+		errors.Is(err, errdefs.ErrUnknown) && regexp.MustCompile(`container with id exists: .*: unknown$`).MatchString(err.Error()) ||
+		errors.Is(err, errdefs.ErrUnknown) && regexp.MustCompile(`mkdir /run/containerd/io\.containerd\.runtime\.v2\.task/.*: file exists: unknown$`).MatchString(err.Error())
 	if !errorIsTaskExists {
 		return nil, err
 	}
@@ -76,7 +78,10 @@ func (r *runtime) newTask(ctx context.Context, container containerd.Container, c
 	_ = r.execHostCommand(ctx, "remove-task-shim"+uuid.New().String(), "sh", "-c", killCommand)
 
 	// delete orphans runc container in namespace
-	_ = r.execHostCommand(ctx, "remove-runc-container"+uuid.New().String(), "runc", "--root=/run/containerd/runc/"+r.namespace, "delete", "-f", container.ID())
+	_ = r.execHostCommand(ctx, "remove-runc-container"+uuid.New().String(), "runc", "--root="+filepath.Join("/run/containerd/runc/", r.namespace), "delete", "-f", container.ID())
+
+	// delete orphans containerd task in namespace
+	_ = r.execHostCommand(ctx, "remove-task-path"+uuid.New().String(), "rm", "-rf", filepath.Join("/run/containerd/io.containerd.runtime.v2.task/", r.namespace, container.ID()))
 
 	// to prevent indefinitely waiting, set default timeout to 1min. If ctx
 	// has an earlier deadline, the timeout will be overridden
