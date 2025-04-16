@@ -263,16 +263,40 @@ func LookupFileInTARFile(file File, fileName string) File {
 				return nil, err
 			}
 			if head.Name == fileName {
-				return struct {
-					io.Reader
-					io.Closer
-				}{
-					Reader: tarReader,
-					Closer: reader,
-				}, nil
+				return newFileInTARFile(reader, head, tarReader)
 			}
 		}
 	})
+}
+
+type SeekReaderAt interface {
+	io.Reader
+	io.Seeker
+	io.ReaderAt
+}
+
+func newFileInTARFile(r io.ReadCloser, h *tar.Header, tr *tar.Reader) (io.ReadCloser, error) {
+	seekReaderAt, ok := r.(SeekReaderAt)
+	if !ok || h.Typeflag != tar.TypeReg {
+		return struct {
+			io.Reader
+			io.Closer
+		}{
+			Reader: tr,
+			Closer: r,
+		}, nil
+	}
+	offset, err := seekReaderAt.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, err
+	}
+	return struct {
+		io.Closer
+		SeekReaderAt
+	}{
+		Closer:       r,
+		SeekReaderAt: io.NewSectionReader(seekReaderAt, offset, h.Size),
+	}, nil
 }
 
 func GzipReaderFromZstdUpstream(upstream io.ReadCloser) (io.ReadCloser, error) {
