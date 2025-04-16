@@ -262,7 +262,7 @@ func LookupFileInTARFile(file File, fileName string) File {
 				}
 				return nil, err
 			}
-			if head.Name == fileName {
+			if head.Name == fileName { // todo: fixme
 				return struct {
 					io.Reader
 					io.Closer
