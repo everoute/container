@@ -24,6 +24,7 @@ type PluginInstanceDefinition struct {
 	PrecheckContainers []ContainerDefinition `yaml:"precheck_containers,omitempty"`
 	InitContainers     []ContainerDefinition `yaml:"init_containers,omitempty"`
 	Containers         []ContainerDefinition `yaml:"containers"`
+	PostContainers     []ContainerDefinition `yaml:"post_containers,omitempty"`
 	CleanContainers    []ContainerDefinition `yaml:"clean_containers,omitempty"`
 }
 

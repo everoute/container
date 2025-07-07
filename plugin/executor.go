@@ -134,20 +134,22 @@ func (w *executor) Precheck(ctx context.Context) error {
 
 // Apply installs plugin to containerd, perform the following steps:
 // 1. config container runtime.
-// 2. upload init_containers and containers required images to containerd.
+// 2. upload required images to containerd.
 // 3. remove all containers in the containerd namespace.
 // 4. start and wait init_containers, kill the container after timeout.
 // 5. start and run containers.
 // 6. wait for all containers ready.
 // 7. setup container logging config.
-// 8. remove unused images from containerd.
+// 8. setup container metrics config.
+// 9. start and wait post_containers, kill the container after timeout.
+// 10. remove unused images from containerd.
 func (w *executor) Apply(ctx context.Context) error {
 	err := w.configContainerRuntime(ctx)
 	if err != nil {
 		return fmt.Errorf("config container runtime: %s", err)
 	}
 
-	err = w.uploadContainerImages(ctx, append(w.instance.InitContainers, w.instance.Containers...)...)
+	err = w.uploadContainerImages(ctx, append(append(w.instance.InitContainers, w.instance.Containers...), w.instance.PostContainers...)...)
 	if err != nil {
 		return fmt.Errorf("upload container images: %s", err)
 	}
@@ -180,6 +182,11 @@ func (w *executor) Apply(ctx context.Context) error {
 	err = w.setupMetrics(ctx)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %s", err)
+	}
+
+	err = w.runAndWaitContainers(ctx, w.instance.PostContainers...)
+	if err != nil {
+		return fmt.Errorf("start post containers: %s", err)
 	}
 
 	err = w.removeUnusedImages(ctx, w.instance.Containers...)
