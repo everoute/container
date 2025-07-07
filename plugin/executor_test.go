@@ -78,6 +78,10 @@ func TestHostPluginExecutorApply(t *testing.T) {
 			newContainerDefinition(rand.String(10), rand.String(10)),
 			newContainerDefinition(rand.String(10), rand.String(10)),
 		},
+		PostContainers: []model.ContainerDefinition{
+			newContainerDefinition(rand.String(10), rand.String(10)),
+			newContainerDefinition(rand.String(10), rand.String(10)),
+		},
 	})
 
 	t.Run("should create containers and remove unused containers", func(t *testing.T) {
