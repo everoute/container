@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/leases"
+	"github.com/containerd/containerd/namespaces"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -414,6 +416,10 @@ func (w *executor) removeAllInNamespace(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	err = w.removeLeasesInNamespace(ctx)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -440,6 +446,28 @@ func (w *executor) removeUnusedImages(ctx context.Context, exceptImagesInContain
 		}
 	}
 
+	return nil
+}
+
+func (w *executor) removeLeasesInNamespace(ctx context.Context) error {
+	p, ok := w.runtime.(client.ContainerdClientProvider)
+	if !ok {
+		return errors.New("unsupported remove leases")
+	}
+	c := p.ContainerdClient()
+	ctx = namespaces.WithNamespace(ctx, w.runtime.Namespace())
+
+	leasess, err := c.LeasesService().List(ctx)
+	if err != nil {
+		return fmt.Errorf("list leases: %w", err)
+	}
+
+	for _, lease := range leasess {
+		err = c.LeasesService().Delete(ctx, lease, leases.SynchronousDelete)
+		if err != nil {
+			return fmt.Errorf("remove lease %s: %w", lease.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -617,9 +645,9 @@ func namespaceExist(ctx context.Context, runtime client.Runtime) (bool, error) {
 		return false, fmt.Errorf("require containerd client")
 	}
 
-	namespaces, err := cp.ContainerdClient().NamespaceService().List(ctx)
+	nss, err := cp.ContainerdClient().NamespaceService().List(ctx)
 	if err != nil {
 		return false, err
 	}
-	return sets.NewString(namespaces...).Has(runtime.Namespace()), nil
+	return sets.NewString(nss...).Has(runtime.Namespace()), nil
 }
