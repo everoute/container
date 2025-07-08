@@ -21,6 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
+	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/leases"
+	"github.com/containerd/containerd/leases/proxy"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/util/rand"
 
@@ -113,6 +117,11 @@ func TestHostPluginExecutorRemove(t *testing.T) {
 			newContainerDefinition(rand.String(10), rand.String(10)),
 		},
 	})
+	patches := gomonkey.
+		ApplyMethodReturn(proxy.NewLeaseManager(nil), "List", []leases.Lease{{}}, nil).
+		ApplyMethodReturn(proxy.NewLeaseManager(nil), "Delete", nil).
+		ApplyMethodReturn(containerd.NewNamespaceStoreFromClient(nil), "List", []string{runtime.Namespace()}, nil)
+	defer patches.Reset()
 
 	t.Run("should remove all containers and images", func(t *testing.T) {
 		RegisterTestingT(t)
