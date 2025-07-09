@@ -158,6 +158,7 @@ func newTCPClient(ctx context.Context, endpoint string, tlsConfig *tls.Config, t
 	return containerd.NewWithConn(conn, containerd.WithTimeout(timeout))
 }
 
+func (r *runtime) Platform() platforms.Matcher          { return r.platform }
 func (r *runtime) ContainerdClient() *containerd.Client { return r.client }
 func (r *runtime) Namespace() string                    { return r.namespace }
 
