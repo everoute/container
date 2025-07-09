@@ -22,6 +22,7 @@ import (
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/platforms"
 
 	"github.com/everoute/container/model"
 )
@@ -37,6 +38,8 @@ type Runtime interface {
 	ContainerManager
 	io.Closer
 
+	// Platform supported by the runtime
+	Platform() platforms.Matcher
 	// Namespace of the current runtime in
 	Namespace() string
 	// NodeExecute execute commands on the runtime node

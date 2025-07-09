@@ -24,6 +24,7 @@ import (
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/platforms"
 
 	"github.com/everoute/container/client"
 	"github.com/everoute/container/model"
@@ -44,6 +45,7 @@ func NewRuntime(followWaitTime time.Duration) client.Runtime {
 	}
 }
 
+func (r *runtime) Platform() platforms.Matcher           { return platforms.All }
 func (r *runtime) ContainerdClient() *containerd.Client  { return &containerd.Client{} }
 func (r *runtime) Namespace() string                     { return "unknown" }
 func (r *runtime) ConfigRuntime(context.Context) error   { return nil }
