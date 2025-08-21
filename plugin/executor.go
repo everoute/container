@@ -18,18 +18,26 @@ package plugin
 
 import (
 	"context"
+	"crypto/sha1"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	gosync "sync"
 	"time"
 
 	"github.com/containerd/containerd"
+	nsapi "github.com/containerd/containerd/api/services/namespaces/v1"
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/gogo/protobuf/types"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
+	"gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -134,19 +142,37 @@ func (w *executor) Precheck(ctx context.Context) error {
 	return nil
 }
 
+const (
+	NamespaceLabelPluginHash            = "everoute.io/cpm/plugin-hash"
+	NamespaceLabelPluginUpdateTimestamp = "everoute.io/cpm/plugin-update-timestamp"
+)
+
 // Apply installs plugin to containerd, perform the following steps:
-// 1. config container runtime.
-// 2. upload required images to containerd.
-// 3. remove all containers in the containerd namespace.
-// 4. start and wait init_containers, kill the container after timeout.
-// 5. start and run containers.
-// 6. wait for all containers ready.
-// 7. setup container logging config.
-// 8. setup container metrics config.
-// 9. start and wait post_containers, kill the container after timeout.
-// 10. remove unused images from containerd.
+// 1. check should skip update plugin instance.
+// 2. remove operation metadata labels from containerd namespace.
+// 3. config container runtime.
+// 4. upload required images to containerd.
+// 5. remove all containers in the containerd namespace.
+// 6. start and wait init_containers, kill the container after timeout.
+// 7. start and run containers.
+// 8. wait for all containers ready.
+// 9. setup container logging config.
+// 10. setup container metrics config.
+// 11. start and wait post_containers, kill the container after timeout.
+// 12. remove unused images from containerd.
+// 13. update operation metadata labels into containerd namespace.
 func (w *executor) Apply(ctx context.Context) error {
-	err := w.configContainerRuntime(ctx)
+	skip, err := w.needSkipApplyPlugin(ctx)
+	if skip || err != nil {
+		return err
+	}
+
+	err = w.removeOperationMetadata(ctx)
+	if err != nil {
+		return fmt.Errorf("remove operation metadata: %w", err)
+	}
+
+	err = w.configContainerRuntime(ctx)
 	if err != nil {
 		return fmt.Errorf("config container runtime: %s", err)
 	}
@@ -196,23 +222,34 @@ func (w *executor) Apply(ctx context.Context) error {
 		return fmt.Errorf("remove unused images: %s", err)
 	}
 
+	err = w.updateOperationMetadata(ctx)
+	if err != nil {
+		return fmt.Errorf("update operation metadata: %w", err)
+	}
+
 	w.Infof("apply plugin instance has been successfully done")
 	return nil
 }
 
 // Remove removes plugin from containerd, perform the following steps:
 // 1. check if the namespace has been removed.
-// 2. remove container logging config.
-// 3. upload clean_containers required images to containerd.
-// 4. remove all containers in the containerd namespace.
-// 5. start and wait clean_containers, kill the container after timeout.
-// 6. remove all containers and images in the namespace.
-// 7. remove the namespace from containerd.
+// 2. remove operation metadata labels from containerd namespace.
+// 3. remove container logging config.
+// 4. upload clean_containers required images to containerd.
+// 5. remove all containers in the containerd namespace.
+// 6. start and wait clean_containers, kill the container after timeout.
+// 7. remove all containers and images in the namespace.
+// 8. remove the namespace from containerd.
 func (w *executor) Remove(ctx context.Context) error {
-	exist, err := namespaceExist(ctx, w.runtime)
+	exist, err := namespaceExists(ctx, w.runtime)
 	if err == nil && !exist {
 		// do nothing on remove when namespace not exist
 		return nil
+	}
+
+	err = w.removeOperationMetadata(ctx)
+	if err != nil {
+		return fmt.Errorf("remove operation metadata: %w", err)
 	}
 
 	err = w.removeLogging(ctx)
@@ -286,6 +323,40 @@ func (w *executor) HealthProbe(ctx context.Context) *model.PluginInstanceHealthR
 	}
 
 	return result
+}
+
+func (w *executor) needSkipApplyPlugin(ctx context.Context) (bool, error) {
+	if !GetSkipNoChange(ctx) {
+		return false, nil
+	}
+
+	lbs, err := namespaceLabels(ctx, w.runtime)
+	if err != nil {
+		return false, fmt.Errorf("namespace info: %w", err)
+	}
+	timestamp := time.Unix(lo.T2(strconv.ParseInt(lbs[NamespaceLabelPluginUpdateTimestamp], 10, 64)).A, 0)
+	historyHash := lbs[NamespaceLabelPluginHash]
+	currentHash := fmt.Sprintf("%x", sha1.Sum(lo.Must(yaml.Marshal(w.instance))))
+	if timestamp.Equal(time.Time{}) ||
+		time.Since(timestamp) < 0 ||
+		historyHash == "" ||
+		historyHash != currentHash {
+		return false, nil
+	}
+
+	for _, c := range w.instance.Containers {
+		status, err := w.runtime.GetContainerStatus(ctx, c.Name)
+		if err != nil {
+			return false, fmt.Errorf("fetch container %s status: %w", c.Name, err)
+		}
+		if status.Status.Status != containerd.Running ||
+			status.UpdatedAt.Truncate(time.Second).After(timestamp) {
+			return false, nil
+		}
+	}
+
+	w.Infof("skip plugin apply becauseof no changes since the last update")
+	return true, nil
 }
 
 func (w *executor) configContainerRuntime(ctx context.Context) error {
@@ -471,6 +542,43 @@ func (w *executor) removeLeasesInNamespace(ctx context.Context) error {
 	return nil
 }
 
+func (w *executor) updateOperationMetadata(ctx context.Context) error {
+	return w.doUpdateOperationMetadata(
+		ctx,
+		fmt.Sprintf("%x", sha1.Sum(lo.Must(yaml.Marshal(w.instance)))),
+		strconv.FormatInt(time.Now().Unix(), 10),
+	)
+}
+
+func (w *executor) removeOperationMetadata(ctx context.Context) error {
+	return w.doUpdateOperationMetadata(ctx, "", "")
+}
+
+func (w *executor) doUpdateOperationMetadata(ctx context.Context, pluginHash, timestamp string) error {
+	p, ok := w.runtime.(client.ContainerdClientProvider)
+	if !ok {
+		return nil
+	}
+	c := nsapi.NewNamespacesClient(p.ContainerdClient().Conn())
+
+	req := nsapi.UpdateNamespaceRequest{
+		Namespace: nsapi.Namespace{
+			Labels: map[string]string{
+				NamespaceLabelPluginHash:            pluginHash,
+				NamespaceLabelPluginUpdateTimestamp: timestamp,
+			},
+			Name: w.runtime.Namespace(),
+		},
+		UpdateMask: &types.FieldMask{Paths: []string{
+			strings.Join([]string{"labels", NamespaceLabelPluginHash}, "."),
+			strings.Join([]string{"labels", NamespaceLabelPluginUpdateTimestamp}, "."),
+		}},
+	}
+
+	ctx = namespaces.WithNamespace(ctx, w.runtime.Namespace())
+	return errdefs.FromGRPC(lo.T2(c.Update(ctx, &req)).B)
+}
+
 func (w *executor) setupLogging(ctx context.Context) error {
 	if w.logging == nil {
 		return nil
@@ -546,8 +654,8 @@ func (w *executor) doCheck(ctx context.Context, containerName string, probe *mod
 		return fmt.Errorf("get container %s status: %s", containerName, err)
 	}
 
-	if status.Status != containerd.Running {
-		return fmt.Errorf("container status is %s not running", status.Status)
+	if status.Status.Status != containerd.Running {
+		return fmt.Errorf("container status is %s not running", status.Status.Status)
 	}
 
 	return nil
@@ -639,7 +747,7 @@ func toRuntimeContainer(apiContainer *model.ContainerDefinition, restartPolicy m
 	return c.Complete()
 }
 
-func namespaceExist(ctx context.Context, runtime client.Runtime) (bool, error) {
+func namespaceExists(ctx context.Context, runtime client.Runtime) (bool, error) {
 	cp, ok := runtime.(client.ContainerdClientProvider)
 	if !ok {
 		return false, fmt.Errorf("require containerd client")
@@ -650,4 +758,13 @@ func namespaceExist(ctx context.Context, runtime client.Runtime) (bool, error) {
 		return false, err
 	}
 	return sets.NewString(nss...).Has(runtime.Namespace()), nil
+}
+
+func namespaceLabels(ctx context.Context, runtime client.Runtime) (map[string]string, error) {
+	p, ok := runtime.(client.ContainerdClientProvider)
+	if !ok {
+		return nil, nil
+	}
+	ctx = namespaces.WithNamespace(ctx, runtime.Namespace())
+	return p.ContainerdClient().NamespaceService().Labels(ctx, runtime.Namespace())
 }

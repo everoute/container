@@ -118,12 +118,12 @@ func (r *runtime) ListContainers(ctx context.Context) ([]*model.Container, error
 	return containers, nil
 }
 
-func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (containerd.Status, error) {
+func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (client.ContainerStatus, error) {
 	_, ok := r.containers[containerID]
 	if !ok {
-		return containerd.Status{}, fmt.Errorf("container %s not found", containerID)
+		return client.ContainerStatus{}, fmt.Errorf("container %s not found", containerID)
 	}
-	return containerd.Status{Status: containerd.Running}, nil
+	return client.ContainerStatus{Status: containerd.Status{Status: containerd.Running}}, nil
 }
 
 func (r *runtime) ExecCommand(ctx context.Context, containerID string, commands []string) (*containerd.ExitStatus, error) {

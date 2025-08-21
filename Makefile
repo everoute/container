@@ -1,7 +1,7 @@
 .PHONY: test docker-test
 
 test:
-	go test ./... --race --coverprofile coverage.out
+	go test --gcflags=all=-l ./... --race --coverprofile coverage.out
 
 docker-test:
 	$(eval WORKDIR := /go/src/github.com/everoute/container)

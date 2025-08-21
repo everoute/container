@@ -23,6 +23,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/containerd/containerd"
+	nsapi "github.com/containerd/containerd/api/services/namespaces/v1"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/leases/proxy"
 	. "github.com/onsi/gomega"
@@ -71,6 +72,9 @@ func TestHostPluginExecutorPrecheck(t *testing.T) {
 }
 
 func TestHostPluginExecutorApply(t *testing.T) {
+	patch := gomonkey.ApplyMethodReturn(nsapi.NewNamespacesClient(nil), "Update", &nsapi.UpdateNamespaceResponse{}, nil)
+	defer patch.Reset()
+
 	ctx := context.Background()
 	runtime := clienttest.NewRuntime(time.Microsecond)
 	executor := plugin.New(runtime, &model.PluginInstanceDefinition{
@@ -109,6 +113,9 @@ func TestHostPluginExecutorApply(t *testing.T) {
 }
 
 func TestHostPluginExecutorRemove(t *testing.T) {
+	patch := gomonkey.ApplyMethodReturn(nsapi.NewNamespacesClient(nil), "Update", &nsapi.UpdateNamespaceResponse{}, nil)
+	defer patch.Reset()
+
 	ctx := context.Background()
 	runtime := clienttest.NewRuntime(time.Microsecond)
 	executor := plugin.New(runtime, &model.PluginInstanceDefinition{
@@ -144,6 +151,9 @@ func TestHostPluginExecutorRemove(t *testing.T) {
 }
 
 func TestHostPluginExecutorHealthProbe(t *testing.T) {
+	patch := gomonkey.ApplyMethodReturn(nsapi.NewNamespacesClient(nil), "Update", &nsapi.UpdateNamespaceResponse{}, nil)
+	defer patch.Reset()
+
 	ctx := context.Background()
 	runtime := clienttest.NewRuntime(time.Microsecond)
 	executor := plugin.New(runtime, &model.PluginInstanceDefinition{
