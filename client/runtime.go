@@ -334,20 +334,28 @@ func (r *runtime) RemoveNamespace(ctx context.Context) error {
 	return ignoreNotFoundError(err)
 }
 
-func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (containerd.Status, error) {
+func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (ContainerStatus, error) {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 
 	c, err := r.client.LoadContainer(ctx, containerID)
 	if err != nil {
-		return containerd.Status{}, fmt.Errorf("load container: %w", err)
+		return ContainerStatus{}, fmt.Errorf("load container: %w", err)
 	}
 
 	task, err := c.Task(ctx, nil)
 	if err != nil {
-		return containerd.Status{}, fmt.Errorf("load task: %w", err)
+		return ContainerStatus{}, fmt.Errorf("load task: %w", err)
 	}
 
-	return task.Status(ctx)
+	status, err := task.Status(ctx)
+	if err != nil {
+		return ContainerStatus{}, fmt.Errorf("get task status: %w", err)
+	}
+
+	return ContainerStatus{
+		Status:    status,
+		Container: lo.Must(c.Info(ctx, containerd.WithoutRefreshedMetadata)),
+	}, nil
 }
 
 func (r *runtime) ExecCommand(ctx context.Context, containerID string, commands []string) (*containerd.ExitStatus, error) {

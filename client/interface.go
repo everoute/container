@@ -21,6 +21,7 @@ import (
 	"io"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
 
@@ -69,6 +70,11 @@ type ImageManager interface {
 	GetImage(ctx context.Context, ref string) (*images.Image, bool, error)
 }
 
+type ContainerStatus struct {
+	containerd.Status
+	containers.Container
+}
+
 // ContainerManager contains methods to manipulate containers managed by a
 // container runtime. The methods are thread-safe.
 type ContainerManager interface {
@@ -85,7 +91,7 @@ type ContainerManager interface {
 	ListContainers(ctx context.Context) ([]*model.Container, error)
 
 	// GetContainerStatus return the container status
-	GetContainerStatus(ctx context.Context, containerID string) (containerd.Status, error)
+	GetContainerStatus(ctx context.Context, containerID string) (ContainerStatus, error)
 
 	// ExecCommand exec giving commands and return result
 	ExecCommand(ctx context.Context, containerID string, commands []string) (*containerd.ExitStatus, error)

@@ -21,6 +21,7 @@ require (
 	github.com/samber/lo v1.39.0
 	go.uber.org/goleak v1.1.12
 	google.golang.org/grpc v1.50.1
+	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.22.5
 	k8s.io/klog/v2 v2.30.0
 )
