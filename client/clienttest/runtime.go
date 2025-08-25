@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
 
@@ -45,11 +46,15 @@ func NewRuntime(followWaitTime time.Duration) client.Runtime {
 	}
 }
 
-func (r *runtime) Platform() platforms.Matcher           { return platforms.All }
+func (r *runtime) Platform() platforms.MatchComparer     { return platforms.All }
 func (r *runtime) ContainerdClient() *containerd.Client  { return &containerd.Client{} }
 func (r *runtime) Namespace() string                     { return "unknown" }
 func (r *runtime) ConfigRuntime(context.Context) error   { return nil }
 func (r *runtime) RemoveNamespace(context.Context) error { return nil }
+
+func (r *runtime) RecommendedRuntimeInfo(context.Context, *model.Container) *containers.RuntimeInfo {
+	return &containers.RuntimeInfo{}
+}
 
 func (r *runtime) NodeExecute(ctx context.Context, name string, commands ...string) error {
 	if len(commands) == 0 {
@@ -94,6 +99,14 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 	if follow {
 		time.Sleep(r.followWaitTime)
 	}
+	return nil
+}
+
+func (r *runtime) UpdateContainer(_ context.Context, container *model.Container, _ *client.ContainerUpdateOptions) error {
+	if _, ok := r.containers[container.Name]; !ok {
+		return fmt.Errorf("container with name %s not exist", container.Name)
+	}
+	r.containers[container.Name] = container
 	return nil
 }
 

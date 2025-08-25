@@ -40,7 +40,7 @@ type Runtime interface {
 	io.Closer
 
 	// Platform supported by the runtime
-	Platform() platforms.Matcher
+	Platform() platforms.MatchComparer
 	// Namespace of the current runtime in
 	Namespace() string
 	// NodeExecute execute commands on the runtime node
@@ -72,14 +72,25 @@ type ImageManager interface {
 
 type ContainerStatus struct {
 	containerd.Status
+	containerd.Task
 	containers.Container
+}
+
+type ContainerUpdateOptions struct {
+	UpdateSnapshot bool
 }
 
 // ContainerManager contains methods to manipulate containers managed by a
 // container runtime. The methods are thread-safe.
 type ContainerManager interface {
+	// RecommendedRuntimeInfo of the container.
+	RecommendedRuntimeInfo(ctx context.Context, container *model.Container) *containers.RuntimeInfo
+
 	// CreateContainer creates a new container.
 	CreateContainer(ctx context.Context, container *model.Container, follow bool) error
+
+	// UpdateContainer update the container.
+	UpdateContainer(ctx context.Context, container *model.Container, opts *ContainerUpdateOptions) error
 
 	// RemoveContainer removes the container.
 	RemoveContainer(ctx context.Context, containerID string) error

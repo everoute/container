@@ -20,9 +20,12 @@ import (
 	"context"
 	"crypto/sha1"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	gosync "sync"
@@ -30,10 +33,14 @@ import (
 
 	"github.com/containerd/containerd"
 	nsapi "github.com/containerd/containerd/api/services/namespaces/v1"
+	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/oci"
 	"github.com/gogo/protobuf/types"
+	"github.com/opencontainers/image-spec/identity"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -123,7 +130,7 @@ func (w *executor) Precheck(ctx context.Context) error {
 		return nil
 	}
 
-	err := w.removeContainersInNamespace(ctx, w.instance.PrecheckContainers...)
+	err := w.removeContainersInNamespaceIncludes(ctx, w.instance.PrecheckContainers...)
 	if err != nil {
 		return fmt.Errorf("remove precheck containers: %s", err)
 	}
@@ -152,9 +159,9 @@ const (
 // 2. remove operation metadata labels from containerd namespace.
 // 3. config container runtime.
 // 4. upload required images to containerd.
-// 5. remove all containers in the containerd namespace.
+// 5. remove obsolete containers in the containerd namespace.
 // 6. start and wait init_containers, kill the container after timeout.
-// 7. start and run containers.
+// 7. start, run and update containers.
 // 8. wait for all containers ready.
 // 9. setup container logging config.
 // 10. setup container metrics config.
@@ -182,7 +189,7 @@ func (w *executor) Apply(ctx context.Context) error {
 		return fmt.Errorf("upload container images: %s", err)
 	}
 
-	err = w.removeContainersInNamespace(ctx)
+	err = w.removeContainersInNamespaceExcludes(ctx, w.instance.Containers...)
 	if err != nil {
 		return fmt.Errorf("remove containers: %s", err)
 	}
@@ -192,7 +199,7 @@ func (w *executor) Apply(ctx context.Context) error {
 		return fmt.Errorf("start init containers: %s", err)
 	}
 
-	err = w.startContainers(ctx, w.instance.Containers...)
+	err = w.runContainers(ctx, w.instance.Containers...)
 	if err != nil {
 		return fmt.Errorf("start workload containers: %s", err)
 	}
@@ -262,7 +269,7 @@ func (w *executor) Remove(ctx context.Context) error {
 		return fmt.Errorf("remove metrics: %s", err)
 	}
 
-	err = w.removeContainersInNamespace(ctx)
+	err = w.removeContainersInNamespace(ctx, nil, nil)
 	if err != nil {
 		return fmt.Errorf("remove containers: %s", err)
 	}
@@ -326,7 +333,7 @@ func (w *executor) HealthProbe(ctx context.Context) *model.PluginInstanceHealthR
 }
 
 func (w *executor) needSkipApplyPlugin(ctx context.Context) (bool, error) {
-	if !GetSkipNoChange(ctx) {
+	if !GetSkipNoChange(ctx) || GetForceUpdate(ctx) {
 		return false, nil
 	}
 
@@ -355,7 +362,7 @@ func (w *executor) needSkipApplyPlugin(ctx context.Context) (bool, error) {
 		}
 	}
 
-	w.Infof("skip plugin apply becauseof no changes since the last update")
+	w.Infof("skip plugin apply becauseof no changes since update at %s", timestamp.Format("2006-01-02T15:04:05Z"))
 	return true, nil
 }
 
@@ -373,10 +380,18 @@ func (w *executor) uploadContainerImages(ctx context.Context, containers ...mode
 	return w.runtime.ImportImages(ctx, imageRefs.List()...)
 }
 
-func (w *executor) removeContainersInNamespace(ctx context.Context, containers ...model.ContainerDefinition) error {
+func (w *executor) removeContainersInNamespaceIncludes(ctx context.Context, containers ...model.ContainerDefinition) error {
+	return w.removeContainersInNamespace(ctx, containers, nil)
+}
+
+func (w *executor) removeContainersInNamespaceExcludes(ctx context.Context, containers ...model.ContainerDefinition) error {
+	return w.removeContainersInNamespace(ctx, nil, containers)
+}
+
+func (w *executor) removeContainersInNamespace(ctx context.Context, includes, excludes []model.ContainerDefinition) error {
 	var containersToRemove []string
 
-	if len(containers) == 0 { // remove all containers on containerd
+	if len(includes) == 0 { // remove all containers on containerd
 		cs, err := w.runtime.ListContainers(ctx)
 		if err != nil {
 			return err
@@ -385,12 +400,16 @@ func (w *executor) removeContainersInNamespace(ctx context.Context, containers .
 			containersToRemove = append(containersToRemove, c.Name)
 		}
 	} else {
-		for _, c := range containers {
+		for _, c := range includes {
 			containersToRemove = append(containersToRemove, c.Name)
 		}
 	}
 
+	excludeNames := lo.Map(excludes, func(cd model.ContainerDefinition, _ int) string { return cd.Name })
 	for _, c := range containersToRemove {
+		if lo.Contains(excludeNames, c) {
+			continue
+		}
 		w.Infof("remove container %s from containerd", c)
 		if err := w.runtime.RemoveContainer(ctx, c); err != nil {
 			return err
@@ -465,21 +484,49 @@ func (w *executor) loadContainerProbe(probe *model.ContainerProbe) *model.Contai
 	return probe
 }
 
-func (w *executor) startContainers(ctx context.Context, containers ...model.ContainerDefinition) error {
+func (w *executor) runContainers(ctx context.Context, containers ...model.ContainerDefinition) error {
 	for item := range containers {
 		// fix: Implicit memory aliasing in for loop
 		c := containers[item]
-		w.Infof("start container %s", c.Name)
-		err := w.runtime.CreateContainer(ctx, toRuntimeContainer(&c, model.RestartPolicyAlways), false)
-		if err != nil {
-			return err
+		updatePolicyMode := model.UpdatePolicyModeRestart
+		if !GetForceUpdate(ctx) && c.UpdatePolicy != nil && c.UpdatePolicy.OnNoChange != "" {
+			updatePolicyMode = c.UpdatePolicy.OnNoChange
+		}
+		mc := toRuntimeContainer(&c, model.RestartPolicyAlways)
+		switch updatePolicyMode {
+		case model.UpdatePolicyModeSkip:
+			can, err := canSkipRestart(ctx, w.runtime, mc)
+			if err != nil {
+				return err
+			}
+			if can {
+				w.Infof("update container %s and skip restart", c.Name)
+				err = w.runtime.UpdateContainer(ctx, mc, &client.ContainerUpdateOptions{})
+				if err != nil {
+					return err
+				}
+				continue
+			}
+			fallthrough
+		case model.UpdatePolicyModeRestart:
+			if _, err := w.runtime.GetContainer(ctx, c.Name); err == nil || !errdefs.IsNotFound(err) {
+				w.Infof("remove container %s from containerd", c.Name)
+				_ = w.runtime.RemoveContainer(ctx, c.Name)
+			}
+			w.Infof("start and run container %s", c.Name)
+			err := w.runtime.CreateContainer(ctx, mc, false)
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unknown update policy mode: %s", updatePolicyMode)
 		}
 	}
 	return nil
 }
 
 func (w *executor) removeAllInNamespace(ctx context.Context) error {
-	err := w.removeContainersInNamespace(ctx)
+	err := w.removeContainersInNamespace(ctx, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -767,4 +814,99 @@ func namespaceLabels(ctx context.Context, runtime client.Runtime) (map[string]st
 	}
 	ctx = namespaces.WithNamespace(ctx, runtime.Namespace())
 	return p.ContainerdClient().NamespaceService().Labels(ctx, runtime.Namespace())
+}
+
+// container can select skip restart when:
+// 1. container state is running
+// 2. logging path donot change
+// 3. container options donot update
+// 4. snapshot parent donot change
+// 5. spec (except resource) donot change
+func canSkipRestart(ctx context.Context, runtime client.Runtime, mc *model.Container) (bool, error) {
+	p, ok := runtime.(client.ContainerdClientProvider)
+	if !ok {
+		return false, nil
+	}
+	c := p.ContainerdClient()
+	ctx = namespaces.WithNamespace(ctx, runtime.Namespace())
+
+	status, err := runtime.GetContainerStatus(ctx, mc.Name)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("status of %s: %w", mc.Name, err)
+	}
+
+	if status.Status.Status != containerd.Running {
+		return false, nil
+	}
+
+	if client.GetLogPath(&status.Container) != mc.Process.LogPath {
+		return false, nil
+	}
+
+	runtimeInfo := runtime.RecommendedRuntimeInfo(ctx, mc)
+	if !reflect.DeepEqual(status.Runtime, *runtimeInfo) {
+		return false, nil
+	}
+
+	img, err := c.ImageService().Get(ctx, mc.Image)
+	if err != nil {
+		return false, fmt.Errorf("image %s: %w", mc.Image, err)
+	}
+	digests, err := img.RootFS(ctx, c.ContentStore(), runtime.Platform())
+	if err != nil {
+		return false, fmt.Errorf("image %s: %w", mc.Image, err)
+	}
+	targetSnapshotID := identity.ChainID(digests).String()
+
+	info, err := c.SnapshotService(status.Snapshotter).Stat(ctx, status.SnapshotKey)
+	if err != nil {
+		return false, fmt.Errorf("snapshot %s: %w", mc.Name, err)
+	}
+	if info.Parent != targetSnapshotID {
+		return false, nil
+	}
+
+	newSpec, err := containerSpec(ctx, c, runtime.Namespace(), mc, img)
+	if err != nil {
+		return false, fmt.Errorf("generate %s spec: %w", mc.Name, err)
+	}
+
+	oldSpec := &specs.Spec{}
+	err = json.Unmarshal(status.Container.Spec.Value, oldSpec)
+	if err != nil {
+		return false, fmt.Errorf("decode %s spec: %w", mc.Name, err)
+	}
+
+	for _, spec := range []*specs.Spec{oldSpec, newSpec} {
+		if spec.Linux != nil { // donot need restart when update resource
+			spec.Linux.Resources = nil
+		}
+		if spec.Process != nil {
+			runtimeENV := []string{client.ENVRuntimeContainerName, client.ENVRuntimeContainerNamespace, client.ENVRuntimeContainerImage}
+			spec.Process.Env = lo.Filter(spec.Process.Env, func(env string, _ int) bool {
+				return !lo.Contains(runtimeENV, strings.Split(env, "=")[0])
+			})
+			if spec.Process.Capabilities != nil {
+				sort.Strings(spec.Process.Capabilities.Bounding)
+				sort.Strings(spec.Process.Capabilities.Effective)
+				sort.Strings(spec.Process.Capabilities.Inheritable)
+				sort.Strings(spec.Process.Capabilities.Permitted)
+				sort.Strings(spec.Process.Capabilities.Ambient)
+			}
+		}
+	}
+
+	newSpecRaw := lo.Must(json.Marshal(newSpec))
+	oldSpecRaw := lo.Must(json.Marshal(oldSpec))
+	return string(newSpecRaw) == string(oldSpecRaw), nil
+}
+
+func containerSpec(ctx context.Context, c *containerd.Client, namespace string, mc *model.Container, image images.Image) (*specs.Spec, error) {
+	ctx = namespaces.WithNamespace(ctx, namespace)
+	cc := &containers.Container{ID: mc.Name}
+	img := containerd.NewImage(c, image)
+	return oci.GenerateSpec(ctx, c, cc, client.ContainerSpecOpts(namespace, img, mc)...)
 }

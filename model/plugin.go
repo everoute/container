@@ -29,17 +29,18 @@ type PluginInstanceDefinition struct {
 }
 
 type ContainerDefinition struct {
-	Name          string              `yaml:"name"`
-	Image         string              `yaml:"image"`
-	Mounts        []MountDefinition   `yaml:"mounts,omitempty"`
-	Process       ProcessDefinition   `yaml:"process"`
-	Logging       *LoggingDefinition  `yaml:"logging,omitempty"`
-	Metrics       *MetricsDefinition  `yaml:"metrics,omitempty"`
-	Resources     *ResourceDefinition `yaml:"resources,omitempty"`
-	Runtime       *RuntimeDefinition  `yaml:"runtime,omitempty"`
-	StartupProbe  *ContainerProbe     `yaml:"startup_probe,omitempty"`
-	LivenessProbe *ContainerProbe     `yaml:"liveness_probe,omitempty"`
-	SpecPatches   []string            `yaml:"spec_patches,omitempty"`
+	Name          string                  `yaml:"name"`
+	Image         string                  `yaml:"image"`
+	Mounts        []MountDefinition       `yaml:"mounts,omitempty"`
+	Process       ProcessDefinition       `yaml:"process"`
+	Logging       *LoggingDefinition      `yaml:"logging,omitempty"`
+	Metrics       *MetricsDefinition      `yaml:"metrics,omitempty"`
+	Resources     *ResourceDefinition     `yaml:"resources,omitempty"`
+	Runtime       *RuntimeDefinition      `yaml:"runtime,omitempty"`
+	UpdatePolicy  *UpdatePolicyDefinition `yaml:"update_policy,omitempty"`
+	StartupProbe  *ContainerProbe         `yaml:"startup_probe,omitempty"`
+	LivenessProbe *ContainerProbe         `yaml:"liveness_probe,omitempty"`
+	SpecPatches   []string                `yaml:"spec_patches,omitempty"`
 }
 
 type MountDefinition struct {
@@ -92,6 +93,17 @@ type RuntimeDefinition struct {
 	BinaryName    string `yaml:"binary_name,omitempty"`
 	SystemdCgroup bool   `yaml:"systemd_cgroup,omitempty"`
 }
+
+type UpdatePolicyDefinition struct {
+	OnNoChange UpdatePolicyMode `yaml:"on_no_change,omitempty"`
+}
+
+type UpdatePolicyMode string
+
+const (
+	UpdatePolicyModeSkip    UpdatePolicyMode = "skip"
+	UpdatePolicyModeRestart UpdatePolicyMode = "restart"
+)
 
 type POSIXRlimit struct {
 	Type string `yaml:"type"`
