@@ -158,7 +158,7 @@ func newTCPClient(ctx context.Context, endpoint string, tlsConfig *tls.Config, t
 	return containerd.NewWithConn(conn, containerd.WithTimeout(timeout))
 }
 
-func (r *runtime) Platform() platforms.Matcher          { return r.platform }
+func (r *runtime) Platform() platforms.MatchComparer    { return r.platform }
 func (r *runtime) ContainerdClient() *containerd.Client { return r.client }
 func (r *runtime) Namespace() string                    { return r.namespace }
 
@@ -225,6 +225,12 @@ func (r *runtime) getImage(ctx context.Context, ref string) (containerd.Image, e
 	return containerd.NewImageWithPlatform(r.client, i, r.platform), nil
 }
 
+func (r *runtime) RecommendedRuntimeInfo(ctx context.Context, container *model.Container) *containers.RuntimeInfo {
+	cc := &containers.Container{}
+	lo.Must0(withRuntime(r.runcPath, container)(ctx, r.client, cc))
+	return &cc.Runtime
+}
+
 func (r *runtime) CreateContainer(ctx context.Context, container *model.Container, following bool) error {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 
@@ -271,6 +277,51 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 	}
 
 	return nil
+}
+
+func (r *runtime) UpdateContainer(ctx context.Context, container *model.Container, opts *ContainerUpdateOptions) error {
+	ctx = namespaces.WithNamespace(ctx, r.namespace)
+
+	image, err := r.getImage(ctx, container.Image)
+	if err != nil {
+		return fmt.Errorf("get image %s: %w", container.Image, err)
+	}
+
+	updateOptions := []containerd.UpdateContainerOpts{
+		containerd.UpdateContainerOpts(containerd.WithImageName(container.Image)),
+		containerd.UpdateContainerOpts(withLogPath(container.Process.LogPath)),
+		// containerd.UpdateContainerOpts(withRuntime(r.runcPath, container)), fixme: runtime donot support update
+		containerd.UpdateContainerOpts(containerd.WithNewSpec(containerSpecOpts(r.namespace, image, container)...)),
+	}
+	if container.Process.RestartPolicy == model.RestartPolicyAlways {
+		updateOptions = append(updateOptions, restart.WithStatus(containerd.Running))
+	}
+	if opts.UpdateSnapshot {
+		updateOptions = append(updateOptions, containerd.UpdateContainerOpts(withNewSnapshotAndConfig(image, container.ConfigContent)))
+	}
+
+	c, err := r.client.LoadContainer(ctx, container.Name)
+	if err != nil {
+		return fmt.Errorf("load container: %w", err)
+	}
+	err = c.Update(ctx, updateOptions...)
+	if err != nil {
+		return fmt.Errorf("update container: %w", err)
+	}
+
+	task, err := c.Task(ctx, nil)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("load task: %w", err)
+	}
+
+	spec, err := c.Spec(ctx)
+	if err != nil {
+		return fmt.Errorf("get container spec: %w", err)
+	}
+	return task.Update(ctx, containerd.WithResources(spec.Linux.Resources))
 }
 
 func (r *runtime) RemoveContainer(ctx context.Context, containerID string) error {
@@ -354,6 +405,7 @@ func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (C
 
 	return ContainerStatus{
 		Status:    status,
+		Task:      task,
 		Container: lo.Must(c.Info(ctx, containerd.WithoutRefreshedMetadata)),
 	}, nil
 }
@@ -397,6 +449,10 @@ func (r *runtime) doConfig(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func ContainerSpecOpts(namespace string, img containerd.Image, container *model.Container) []oci.SpecOpts {
+	return containerSpecOpts(namespace, img, container)
 }
 
 func containerSpecOpts(namespace string, img containerd.Image, container *model.Container) []oci.SpecOpts {
@@ -574,6 +630,16 @@ func withLogPath(logPath string) func(ctx context.Context, client *containerd.Cl
 		c.Labels[restart.LogURILabel] = uri.String()
 		return nil
 	}
+}
+
+func GetLogPath(c *containers.Container) string {
+	if c.Labels[restart.LogURILabel] != "" {
+		return strings.TrimPrefix(c.Labels[restart.LogURILabel], "file://")
+	}
+	if c.Labels[restart.LogPathLabel] != "" {
+		return c.Labels[restart.LogPathLabel]
+	}
+	return ""
 }
 
 func withRlimits(rlimits []specs.POSIXRlimit) oci.SpecOpts {

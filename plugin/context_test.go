@@ -35,3 +35,14 @@ func TestContextSkipNoChange(t *testing.T) {
 	ctx = plugin.SetSkipNoChange(ctx, false)
 	Expect(plugin.GetSkipNoChange(ctx)).Should(BeFalse())
 }
+
+func TestContextForceUpdate(t *testing.T) {
+	RegisterTestingT(t)
+
+	ctx := context.Background()
+	Expect(plugin.GetForceUpdate(ctx)).Should(BeFalse())
+	ctx = plugin.WithForceUpdate(ctx)
+	Expect(plugin.GetForceUpdate(ctx)).Should(BeTrue())
+	ctx = plugin.SetForceUpdate(ctx, false)
+	Expect(plugin.GetForceUpdate(ctx)).Should(BeFalse())
+}

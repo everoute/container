@@ -26,6 +26,7 @@ type ContextKey string
 
 const (
 	ContextSkipNoChange ContextKey = "skip-no-change"
+	ContextForceUpdate  ContextKey = "force-update"
 )
 
 func SetSkipNoChange(ctx context.Context, skip bool) context.Context {
@@ -40,4 +41,18 @@ func GetSkipNoChange(ctx context.Context) bool {
 
 func WithSkipNoChange(ctx context.Context) context.Context {
 	return SetSkipNoChange(ctx, true)
+}
+
+func SetForceUpdate(ctx context.Context, force bool) context.Context {
+	return context.WithValue(ctx, ContextForceUpdate, force)
+}
+
+func GetForceUpdate(ctx context.Context) bool {
+	v := ctx.Value(ContextForceUpdate)
+	force, ok := v.(bool)
+	return lo.If(ok, force).Else(false)
+}
+
+func WithForceUpdate(ctx context.Context) context.Context {
+	return SetForceUpdate(ctx, true)
 }
