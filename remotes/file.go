@@ -18,13 +18,10 @@ package remotes
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
-	"path/filepath"
 	"sort"
 
 	"github.com/containerd/containerd"
@@ -33,7 +30,6 @@ import (
 	"github.com/docker/distribution/reference"
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/hashicorp/go-version"
-	"github.com/klauspost/compress/zstd"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
@@ -63,7 +59,16 @@ var ErrNotFound = errors.New("not found")
 // NewFileProvider create a new file provider
 func NewFileProvider(file File) StoreProvider {
 	return &fileProvider{
-		file: file,
+		file:       file,
+		downloader: NewDownloadGZIPFromZSDT(file),
+	}
+}
+
+// NewFileProviderWithDownloader create a new file provider use custom Downloader
+func NewFileProviderWithDownloader(file File, downloader Downloader) StoreProvider {
+	return &fileProvider{
+		file:       file,
+		downloader: downloader,
 	}
 }
 
@@ -71,8 +76,9 @@ func NewFileProvider(file File) StoreProvider {
 // for now only supports oci image layout 1.0.0:
 // - https://github.com/opencontainers/image-spec/blob/main/image-layout.md
 type fileProvider struct {
-	file   File
-	client *containerd.Client
+	file       File
+	downloader Downloader
+	client     *containerd.Client
 }
 
 func (p *fileProvider) Name() string { return "file provider" }
@@ -96,40 +102,11 @@ func (p *fileProvider) Fetcher(ctx context.Context, ref string) (remotes.Fetcher
 
 func (p *fileProvider) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
 	fileLocation := fmt.Sprintf("blobs/%s/%s", desc.Digest.Algorithm(), desc.Digest.Encoded())
-	reader, err := LookupFileInTARFile(p.file, fileLocation).Open()
-	if err == nil {
-		return reader, nil
+	r, err := LookupFileInTARFile(p.file, fileLocation).Open()
+	if err == nil || !errors.Is(err, ErrNotFound) || len(desc.URLs) == 0 {
+		return r, err
 	}
-	if err != nil {
-		// NOTE: to reproducible generate gzip from zstd, gzip header should
-		// always be empty, and the default compress level should be used
-		if !errors.Is(err, ErrNotFound) || len(desc.URLs) == 0 || desc.MediaType != ocispec.MediaTypeImageLayerGzip {
-			return nil, err
-		}
-	}
-
-	for _, downloadURL := range desc.URLs {
-		u, err := url.ParseRequestURI(downloadURL)
-		if err != nil {
-			continue
-		}
-
-		switch u.Scheme { // //nolint: gocritic
-		case URISchemeZstd:
-			reader, err = LookupFileInTARFile(p.file, filepath.Join("blobs", u.Path)).Open()
-			if err != nil {
-				return nil, fmt.Errorf("read blobs %s: %w", u.Path, err)
-			}
-			greader, err := GzipReaderFromZstdUpstream(reader)
-			if err != nil {
-				_ = reader.Close()
-				return nil, fmt.Errorf("read gzip from zstd: %w", err)
-			}
-			return greader, nil
-		}
-	}
-
-	return nil, fmt.Errorf("digest %s not found: %w", desc.Digest, ErrNotFound)
+	return DownloadFetch(ctx, p.downloader, desc)
 }
 
 func (p *fileProvider) Get(ctx context.Context, ref string) (images.Image, error) {
@@ -296,29 +273,5 @@ func newFileInTARFile(r io.ReadCloser, h *tar.Header, tr *tar.Reader) (io.ReadCl
 	}{
 		Closer:       r,
 		SeekReaderAt: io.NewSectionReader(seekReaderAt, offset, h.Size),
-	}, nil
-}
-
-func GzipReaderFromZstdUpstream(upstream io.ReadCloser) (io.ReadCloser, error) {
-	zreader, err := zstd.NewReader(upstream)
-	if err != nil {
-		return nil, fmt.Errorf("open zstd stream: %w", err)
-	}
-
-	pr, pw := io.Pipe()
-	greader := gzip.NewWriter(pw)
-	go func() {
-		_, err = io.Copy(greader, zreader)
-		zreader.Close()
-		greader.Close()
-		_ = pw.CloseWithError(err)
-	}()
-
-	return struct {
-		io.Reader
-		io.Closer
-	}{
-		Reader: pr,
-		Closer: multiCloser(pr, upstream),
 	}, nil
 }
