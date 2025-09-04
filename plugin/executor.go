@@ -437,9 +437,11 @@ func (w *executor) runAndWaitContainers(ctx context.Context, containers ...model
 }
 
 const (
-	startProbeCheckInterval = 5 * time.Second
-	defaultCheckTimeout     = 3 * time.Second
-	defaultProbeTimeout     = 2 * time.Minute
+	startProbeCheckInterval    = 5 * time.Second
+	defaultCheckTimeout        = 3 * time.Second
+	defaultProbeTimeout        = 2 * time.Minute
+	defaultHookExecTimeout     = 10 * time.Second
+	defaultHookRetriesInterval = time.Second
 )
 
 func (w *executor) waitContainersReady(ctx context.Context, containers ...model.ContainerDefinition) error {
@@ -509,6 +511,9 @@ func (w *executor) runContainers(ctx context.Context, containers ...model.Contai
 			}
 			fallthrough
 		case model.UpdatePolicyModeRestart:
+			if err := w.doContainerPreRestart(ctx, c); err != nil {
+				return fmt.Errorf("pre-restart container %s: %w", c.Name, err)
+			}
 			if _, err := w.runtime.GetContainer(ctx, c.Name); err == nil || !errdefs.IsNotFound(err) {
 				w.Infof("remove container %s from containerd", c.Name)
 				_ = w.runtime.RemoveContainer(ctx, c.Name)
@@ -624,6 +629,53 @@ func (w *executor) doUpdateOperationMetadata(ctx context.Context, pluginHash, ti
 
 	ctx = namespaces.WithNamespace(ctx, w.runtime.Namespace())
 	return errdefs.FromGRPC(lo.T2(c.Update(ctx, &req)).B)
+}
+
+func (w *executor) doContainerPreRestart(ctx context.Context, c model.ContainerDefinition) error {
+	if c.UpdatePolicy == nil || c.UpdatePolicy.PreRestartHook == nil {
+		return nil
+	}
+	status, err := w.runtime.GetContainerStatus(ctx, c.Name)
+	if errdefs.IsNotFound(err) || err == nil && status.Status.Status != containerd.Running {
+		return nil
+	}
+	return w.doContainerExecHook(ctx, c.Name, "pre-restart", c.UpdatePolicy.PreRestartHook)
+}
+
+func (w *executor) doContainerExecHook(ctx context.Context, name, hookName string, hook *model.Hook) error {
+	interval := defaultHookRetriesInterval
+	if hook.RetriesInterval != nil {
+		interval = time.Duration(*hook.RetriesInterval) * time.Second
+	}
+	timeout := defaultHookExecTimeout
+	if hook.ExecTimeout != nil {
+		timeout = time.Duration(*hook.ExecTimeout) * time.Second
+	}
+
+	var herr error
+
+	for retries := hook.MaxRetries; retries >= 0; retries-- {
+		w.Infof("exec %s hook in container %s", hookName, name)
+		func() {
+			ctx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+			result, err := w.runtime.ExecCommand(ctx, name, hook.ExecCommand)
+			herr = client.HandleTaskResult(result, err)
+		}()
+		if herr == nil {
+			break
+		}
+		w.Warningf("exec %s hook in container %s: %s", hookName, name, herr)
+		if retries > 0 {
+			time.Sleep(interval)
+		}
+	}
+
+	if herr != nil && hook.IgnoreFailed {
+		w.Warningf("exec %s hook in container %s: failed after %d retries", hookName, name, hook.MaxRetries+1)
+		return nil
+	}
+	return herr
 }
 
 func (w *executor) setupLogging(ctx context.Context) error {

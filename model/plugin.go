@@ -95,7 +95,16 @@ type RuntimeDefinition struct {
 }
 
 type UpdatePolicyDefinition struct {
-	OnNoChange UpdatePolicyMode `yaml:"on_no_change,omitempty"`
+	OnNoChange     UpdatePolicyMode `yaml:"on_no_change,omitempty"`
+	PreRestartHook *Hook            `yaml:"pre_restart_hook,omitempty"` // exec when the previous container state is running
+}
+
+type Hook struct {
+	ExecCommand     []string `yaml:"exec_command,omitempty"`
+	ExecTimeout     *int     `yaml:"exec_timeout,omitempty"`     // 0 means no timeout, default to 10(s)
+	RetriesInterval *int     `yaml:"retries_interval,omitempty"` // 0 means no waiting, default to 1(s)
+	MaxRetries      int      `yaml:"max_retries,omitempty"`      // 0 means no retries, default to 0
+	IgnoreFailed    bool     `yaml:"ignore_failed,omitempty"`    // ignore on hook failed
 }
 
 type UpdatePolicyMode string
