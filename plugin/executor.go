@@ -487,47 +487,44 @@ func (w *executor) loadContainerProbe(probe *model.ContainerProbe) *model.Contai
 }
 
 func (w *executor) runContainers(ctx context.Context, containers ...model.ContainerDefinition) error {
+	group := sync.NewGroup(0)
+
 	for item := range containers {
 		// fix: Implicit memory aliasing in for loop
 		c := containers[item]
-		updatePolicyMode := model.UpdatePolicyModeRestart
-		if !GetForceUpdate(ctx) && c.UpdatePolicy != nil && c.UpdatePolicy.OnNoChange != "" {
-			updatePolicyMode = c.UpdatePolicy.OnNoChange
-		}
-		mc := toRuntimeContainer(&c, model.RestartPolicyAlways)
-		switch updatePolicyMode {
-		case model.UpdatePolicyModeSkip:
-			can, err := canSkipRestart(ctx, w.runtime, mc)
-			if err != nil {
-				return err
+		group.Go(func() error {
+			updatePolicyMode := model.UpdatePolicyModeRestart
+			if !GetForceUpdate(ctx) && c.UpdatePolicy != nil && c.UpdatePolicy.OnNoChange != "" {
+				updatePolicyMode = c.UpdatePolicy.OnNoChange
 			}
-			if can {
-				w.Infof("update container %s and skip restart", c.Name)
-				err = w.runtime.UpdateContainer(ctx, mc, &client.ContainerUpdateOptions{})
+			mc := toRuntimeContainer(&c, model.RestartPolicyAlways)
+			switch updatePolicyMode {
+			case model.UpdatePolicyModeSkip:
+				can, err := canSkipRestart(ctx, w.runtime, mc)
 				if err != nil {
 					return err
 				}
-				continue
+				if can {
+					w.Infof("update container %s and skip restart", c.Name)
+					return w.runtime.UpdateContainer(ctx, mc, &client.ContainerUpdateOptions{})
+				}
+				fallthrough
+			case model.UpdatePolicyModeRestart:
+				if err := w.doContainerPreRestart(ctx, c); err != nil {
+					return fmt.Errorf("pre-restart container %s: %w", c.Name, err)
+				}
+				if _, err := w.runtime.GetContainer(ctx, c.Name); err == nil || !errdefs.IsNotFound(err) {
+					w.Infof("remove container %s from containerd", c.Name)
+					_ = w.runtime.RemoveContainer(ctx, c.Name)
+				}
+				w.Infof("start and run container %s", c.Name)
+				return w.runtime.CreateContainer(ctx, mc, false)
+			default:
+				return fmt.Errorf("unknown update policy mode: %s", updatePolicyMode)
 			}
-			fallthrough
-		case model.UpdatePolicyModeRestart:
-			if err := w.doContainerPreRestart(ctx, c); err != nil {
-				return fmt.Errorf("pre-restart container %s: %w", c.Name, err)
-			}
-			if _, err := w.runtime.GetContainer(ctx, c.Name); err == nil || !errdefs.IsNotFound(err) {
-				w.Infof("remove container %s from containerd", c.Name)
-				_ = w.runtime.RemoveContainer(ctx, c.Name)
-			}
-			w.Infof("start and run container %s", c.Name)
-			err := w.runtime.CreateContainer(ctx, mc, false)
-			if err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("unknown update policy mode: %s", updatePolicyMode)
-		}
+		})
 	}
-	return nil
+	return group.WaitResult()
 }
 
 func (w *executor) removeAllInNamespace(ctx context.Context) error {

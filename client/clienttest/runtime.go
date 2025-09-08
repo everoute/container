@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/containerd/containerd"
@@ -35,6 +36,7 @@ type runtime struct {
 	followWaitTime time.Duration
 	images         map[string]images.Image
 	containers     map[string]*model.Container
+	mu             sync.Mutex
 }
 
 // NewRuntime create a mock runtime, any images or containers record to memory only
@@ -91,6 +93,9 @@ func (r *runtime) GetImage(ctx context.Context, ref string) (*images.Image, bool
 }
 
 func (r *runtime) CreateContainer(ctx context.Context, container *model.Container, follow bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if _, ok := r.containers[container.Name]; ok {
 		return fmt.Errorf("container with name %s exist", container.Name)
 	}
@@ -103,6 +108,9 @@ func (r *runtime) CreateContainer(ctx context.Context, container *model.Containe
 }
 
 func (r *runtime) UpdateContainer(_ context.Context, container *model.Container, _ *client.ContainerUpdateOptions) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if _, ok := r.containers[container.Name]; !ok {
 		return fmt.Errorf("container with name %s not exist", container.Name)
 	}
@@ -111,11 +119,17 @@ func (r *runtime) UpdateContainer(_ context.Context, container *model.Container,
 }
 
 func (r *runtime) RemoveContainer(ctx context.Context, containerID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	delete(r.containers, containerID)
 	return nil
 }
 
 func (r *runtime) GetContainer(ctx context.Context, containerID string) (*model.Container, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	container, ok := r.containers[containerID]
 	if !ok {
 		return nil, fmt.Errorf("container %s not found", containerID)
@@ -124,6 +138,9 @@ func (r *runtime) GetContainer(ctx context.Context, containerID string) (*model.
 }
 
 func (r *runtime) ListContainers(ctx context.Context) ([]*model.Container, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	containers := make([]*model.Container, 0, len(r.containers))
 	for _, container := range r.containers {
 		containers = append(containers, container)
@@ -132,6 +149,9 @@ func (r *runtime) ListContainers(ctx context.Context) ([]*model.Container, error
 }
 
 func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (client.ContainerStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	_, ok := r.containers[containerID]
 	if !ok {
 		return client.ContainerStatus{}, fmt.Errorf("container %s not found", containerID)
