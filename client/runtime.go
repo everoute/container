@@ -493,6 +493,9 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 		specOpts = append(specOpts, oci.WithCPUCFS(container.CPUQuota, container.CPUPeriod))
 	}
 	specOpts = append(specOpts, withRlimits(container.Rlimits))
+	if container.Runtime.SystemdCgroup {
+		specOpts = append(specOpts, withAllowAllDevices)
+	}
 	specOpts = append(specOpts, withSpecPatches(container.SpecPatches))
 	specOpts = append(specOpts, withRuntimeENV(namespace, container))
 	return specOpts
@@ -720,4 +723,14 @@ func withRuntimeENV(namespace string, container *model.Container) oci.SpecOpts {
 		fmt.Sprintf("%s=%s", ENVRuntimeContainerName, container.Name),
 		fmt.Sprintf("%s=%s", ENVRuntimeContainerImage, container.Image),
 	})
+}
+
+func withAllowAllDevices(_ context.Context, _ oci.Client, _ *containers.Container, spec *oci.Spec) error {
+	spec.Linux.Resources.Devices = []specs.LinuxDeviceCgroup{
+		{
+			Allow:  true,
+			Access: "rwm",
+		},
+	}
+	return nil
 }
