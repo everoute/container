@@ -181,14 +181,9 @@ func (r *runtime) ImportImages(ctx context.Context, refs ...string) error {
 
 	for _, ref := range refs {
 		// fix: pull with unpack do not fetch missing contents
-		img, err := r.client.Fetch(ctx, ref, containerd.WithPlatformMatcher(r.platform), containerd.WithResolver(r.resolver))
+		_, err := r.client.Fetch(ctx, ref, containerd.WithPlatformMatcher(r.platform), containerd.WithResolver(r.resolver))
 		if err != nil {
 			return fmt.Errorf("import %s: %w", ref, err)
-		}
-
-		err = containerd.NewImageWithPlatform(r.client, img, r.platform).Unpack(ctx, containerd.DefaultSnapshotter)
-		if err != nil {
-			return fmt.Errorf("unpack %s: %w", ref, err)
 		}
 	}
 	return nil
@@ -203,6 +198,15 @@ func (r *runtime) RemoveImage(ctx context.Context, ref string) error {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
 	err := r.client.ImageService().Delete(ctx, ref, images.SynchronousDelete())
 	return ignoreNotFoundError(err)
+}
+
+func (r *runtime) UnpackImage(ctx context.Context, ref string) error {
+	ctx = namespaces.WithNamespace(ctx, r.namespace)
+	img, err := r.getImage(ctx, ref)
+	if err != nil {
+		return err
+	}
+	return unpackImage(ctx, img, containerd.DefaultSnapshotter)
 }
 
 func (r *runtime) GetImage(ctx context.Context, ref string) (*images.Image, bool, error) {
@@ -549,9 +553,10 @@ func withoutAnyMounts() oci.SpecOpts {
 func withNewSnapshotAndConfig(img containerd.Image, configContent []model.ConfigFile) containerd.NewContainerOpts {
 	return func(ctx context.Context, client *containerd.Client, c *containers.Container) error {
 		var (
-			snapshotID = rand.String(10)
-			data       = toRawConfig(configContent)
-			descriptor = v1.Descriptor{
+			snapshotID      = rand.String(10)
+			snapshotterName = containerd.DefaultSnapshotter
+			data            = toRawConfig(configContent)
+			descriptor      = v1.Descriptor{
 				MediaType: v1.MediaTypeImageLayer,
 				Digest:    digest.SHA256.FromBytes(data),
 				Size:      int64(len(data)),
@@ -559,12 +564,16 @@ func withNewSnapshotAndConfig(img containerd.Image, configContent []model.Config
 			ref = fmt.Sprintf("ingest-%s", descriptor.Digest)
 		)
 
-		diffIDs, err := img.RootFS(ctx)
+		err := unpackImage(ctx, img, snapshotterName)
 		if err != nil {
 			return err
 		}
 
-		mounts, err := client.SnapshotService(containerd.DefaultSnapshotter).Prepare(ctx, snapshotID, identity.ChainID(diffIDs).String())
+		diffIDs, err := img.RootFS(ctx)
+		if err != nil {
+			return err
+		}
+		mounts, err := client.SnapshotService(snapshotterName).Prepare(ctx, snapshotID, identity.ChainID(diffIDs).String())
 		if err != nil {
 			return err
 		}
@@ -731,6 +740,19 @@ func withAllowAllDevices(_ context.Context, _ oci.Client, _ *containers.Containe
 			Allow:  true,
 			Access: "rwm",
 		},
+	}
+	return nil
+}
+
+func unpackImage(ctx context.Context, img containerd.Image, snapshotterName string) error {
+	unpacked, err := img.IsUnpacked(ctx, snapshotterName)
+	if err != nil {
+		return err
+	}
+	if !unpacked {
+		if err := img.Unpack(ctx, snapshotterName); err != nil {
+			return err
+		}
 	}
 	return nil
 }

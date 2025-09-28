@@ -48,11 +48,12 @@ func NewRuntime(followWaitTime time.Duration) client.Runtime {
 	}
 }
 
-func (r *runtime) Platform() platforms.MatchComparer     { return platforms.All }
-func (r *runtime) ContainerdClient() *containerd.Client  { return &containerd.Client{} }
-func (r *runtime) Namespace() string                     { return "unknown" }
-func (r *runtime) ConfigRuntime(context.Context) error   { return nil }
-func (r *runtime) RemoveNamespace(context.Context) error { return nil }
+func (r *runtime) Platform() platforms.MatchComparer         { return platforms.All }
+func (r *runtime) ContainerdClient() *containerd.Client      { return &containerd.Client{} }
+func (r *runtime) Namespace() string                         { return "unknown" }
+func (r *runtime) ConfigRuntime(context.Context) error       { return nil }
+func (r *runtime) RemoveNamespace(context.Context) error     { return nil }
+func (r *runtime) UnpackImage(context.Context, string) error { return nil }
 
 func (r *runtime) RecommendedRuntimeInfo(context.Context, *model.Container) *containers.RuntimeInfo {
 	return &containers.RuntimeInfo{}
