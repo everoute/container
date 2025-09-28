@@ -66,6 +66,9 @@ type ImageManager interface {
 	// RemoveImage remove an image from containerd
 	RemoveImage(ctx context.Context, ref string) error
 
+	// UnpackImage unpack an image in containerd
+	UnpackImage(ctx context.Context, ref string) error
+
 	// GetImage return image details
 	GetImage(ctx context.Context, ref string) (*images.Image, bool, error)
 }
