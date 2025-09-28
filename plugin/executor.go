@@ -45,6 +45,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
+	apierr "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -135,7 +136,8 @@ func (w *executor) Precheck(ctx context.Context) error {
 		return fmt.Errorf("remove precheck containers: %s", err)
 	}
 
-	err = w.uploadContainerImages(ctx, w.instance.PrecheckContainers...)
+	expectImages := lo.Map(w.instance.PrecheckContainers, func(c model.ContainerDefinition, _ int) string { return c.Image })
+	err = w.uploadContainerImages(ctx, expectImages...)
 	if err != nil {
 		return fmt.Errorf("upload precheck images: %s", err)
 	}
@@ -159,15 +161,16 @@ const (
 // 2. remove operation metadata labels from containerd namespace.
 // 3. config container runtime.
 // 4. upload required images to containerd.
-// 5. remove obsolete containers in the containerd namespace.
-// 6. start and wait init_containers, kill the container after timeout.
-// 7. start, run and update containers.
-// 8. wait for all containers ready.
-// 9. setup container logging config.
-// 10. setup container metrics config.
-// 11. start and wait post_containers, kill the container after timeout.
-// 12. remove unused images from containerd.
-// 13. update operation metadata labels into containerd namespace.
+// 5. unpack required images in containerd.
+// 6. remove obsolete containers in the containerd namespace.
+// 7. start and wait init_containers, kill the container after timeout.
+// 8. start, run and update containers.
+// 9. wait for all containers ready.
+// 10. setup container logging config.
+// 11. setup container metrics config.
+// 12. start and wait post_containers, kill the container after timeout.
+// 13. remove unused images from containerd.
+// 14. update operation metadata labels into containerd namespace.
 func (w *executor) Apply(ctx context.Context) error {
 	skip, err := w.needSkipApplyPlugin(ctx)
 	if skip || err != nil {
@@ -184,9 +187,21 @@ func (w *executor) Apply(ctx context.Context) error {
 		return fmt.Errorf("config container runtime: %s", err)
 	}
 
-	err = w.uploadContainerImages(ctx, append(append(w.instance.InitContainers, w.instance.Containers...), w.instance.PostContainers...)...)
+	expectImages := lo.Union(
+		lo.Map(w.instance.ExtraRequireImages, func(e model.ExtraRequireImage, _ int) string { return e.Name }),
+		lo.Map(w.instance.InitContainers, func(c model.ContainerDefinition, _ int) string { return c.Image }),
+		lo.Map(w.instance.Containers, func(c model.ContainerDefinition, _ int) string { return c.Image }),
+		lo.Map(w.instance.PostContainers, func(c model.ContainerDefinition, _ int) string { return c.Image }),
+	)
+	err = w.uploadContainerImages(ctx, expectImages...)
 	if err != nil {
 		return fmt.Errorf("upload container images: %s", err)
+	}
+
+	unpackImages := lo.FilterMap(w.instance.ExtraRequireImages, func(e model.ExtraRequireImage, _ int) (string, bool) { return e.Name, e.Unpack })
+	err = w.unpackContainerImages(ctx, unpackImages...)
+	if err != nil {
+		return fmt.Errorf("unpack container images: %s", err)
 	}
 
 	err = w.removeContainersInNamespaceExcludes(ctx, w.instance.Containers...)
@@ -224,7 +239,15 @@ func (w *executor) Apply(ctx context.Context) error {
 		return fmt.Errorf("start post containers: %s", err)
 	}
 
-	err = w.removeUnusedImages(ctx, w.instance.Containers...)
+	inuseImages := lo.Union(
+		lo.Map(w.instance.ExtraRequireImages, func(e model.ExtraRequireImage, _ int) string { return e.Name }),
+		lo.Map(w.instance.PrecheckContainers, func(c model.ContainerDefinition, _ int) string { return c.Image }),
+		lo.Map(w.instance.InitContainers, func(c model.ContainerDefinition, _ int) string { return c.Image }),
+		lo.Map(w.instance.Containers, func(c model.ContainerDefinition, _ int) string { return c.Image }),
+		lo.Map(w.instance.PostContainers, func(c model.ContainerDefinition, _ int) string { return c.Image }),
+		lo.Map(w.instance.CleanContainers, func(c model.ContainerDefinition, _ int) string { return c.Image }),
+	)
+	err = w.removeUnusedImages(ctx, inuseImages...)
 	if err != nil {
 		return fmt.Errorf("remove unused images: %s", err)
 	}
@@ -275,7 +298,8 @@ func (w *executor) Remove(ctx context.Context) error {
 	}
 
 	if len(w.instance.CleanContainers) != 0 {
-		err = w.uploadContainerImages(ctx, w.instance.CleanContainers...)
+		expectImages := lo.Map(w.instance.CleanContainers, func(c model.ContainerDefinition, _ int) string { return c.Image })
+		err = w.uploadContainerImages(ctx, expectImages...)
 		if err != nil {
 			return fmt.Errorf("upload cleanup images: %s", err)
 		}
@@ -371,13 +395,24 @@ func (w *executor) configContainerRuntime(ctx context.Context) error {
 	return w.runtime.ConfigRuntime(ctx)
 }
 
-func (w *executor) uploadContainerImages(ctx context.Context, containers ...model.ContainerDefinition) error {
-	imageRefs := sets.NewString()
-	for _, c := range containers {
-		imageRefs.Insert(c.Image)
+func (w *executor) uploadContainerImages(ctx context.Context, expectImages ...string) error {
+	if len(expectImages) == 0 {
+		return nil
 	}
-	w.Infof("uploading images to containerd: %v", imageRefs.List())
-	return w.runtime.ImportImages(ctx, imageRefs.List()...)
+	expectImages = lo.Uniq(expectImages)
+	w.Infof("uploading images to containerd: %v", expectImages)
+	return w.runtime.ImportImages(ctx, expectImages...)
+}
+
+func (w *executor) unpackContainerImages(ctx context.Context, expectImages ...string) error {
+	if len(expectImages) == 0 {
+		return nil
+	}
+	expectImages = lo.Uniq(expectImages)
+	w.Infof("uppacking images in containerd: %v", expectImages)
+	return apierr.NewAggregate(lo.Map(expectImages, func(image string, _ int) error {
+		return w.runtime.UnpackImage(ctx, image)
+	}))
 }
 
 func (w *executor) removeContainersInNamespaceIncludes(ctx context.Context, containers ...model.ContainerDefinition) error {
@@ -543,7 +578,7 @@ func (w *executor) removeAllInNamespace(ctx context.Context) error {
 	return nil
 }
 
-func (w *executor) removeUnusedImages(ctx context.Context, exceptImagesInContainer ...model.ContainerDefinition) error {
+func (w *executor) removeUnusedImages(ctx context.Context, inuseImages ...string) error {
 	images, err := w.runtime.ListImages(ctx)
 	if err != nil {
 		return err
@@ -553,10 +588,7 @@ func (w *executor) removeUnusedImages(ctx context.Context, exceptImagesInContain
 	for _, i := range images {
 		imageSet.Insert(i.Name)
 	}
-
-	for _, c := range exceptImagesInContainer {
-		imageSet.Delete(c.Image)
-	}
+	imageSet.Delete(inuseImages...)
 
 	for _, image := range imageSet.List() {
 		w.Infof("remove image %s from containerd", image)
