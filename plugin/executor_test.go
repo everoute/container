@@ -108,7 +108,7 @@ func TestHostPluginExecutorApply(t *testing.T) {
 
 		images, err := runtime.ListImages(ctx)
 		Expect(err).ShouldNot(HaveOccurred())
-		Expect(images).Should(HaveLen(2))
+		Expect(images).Should(HaveLen(6))
 	})
 }
 

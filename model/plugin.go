@@ -21,11 +21,17 @@ import "time"
 // PluginInstanceDefinition contains container definitions about how
 // to install a plugin instance
 type PluginInstanceDefinition struct {
+	ExtraRequireImages []ExtraRequireImage   `yaml:"extra_require_images,omitempty"`
 	PrecheckContainers []ContainerDefinition `yaml:"precheck_containers,omitempty"`
 	InitContainers     []ContainerDefinition `yaml:"init_containers,omitempty"`
 	Containers         []ContainerDefinition `yaml:"containers"`
 	PostContainers     []ContainerDefinition `yaml:"post_containers,omitempty"`
 	CleanContainers    []ContainerDefinition `yaml:"clean_containers,omitempty"`
+}
+
+type ExtraRequireImage struct {
+	Name   string `yaml:"name"`
+	Unpack bool   `yaml:"unpack,omitempty"`
 }
 
 type ContainerDefinition struct {
