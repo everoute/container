@@ -32,6 +32,7 @@ import (
 	"github.com/containerd/containerd/oci"
 	"github.com/google/uuid"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/samber/lo"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/everoute/container/model"
@@ -45,7 +46,7 @@ func (r *runtime) doPlatformConfig(ctx context.Context) error {
 func (r *runtime) setDefaultRuncPath(ctx context.Context) {
 	// NOTE: prioritize to use containerd runc path /usr/bin/runc
 	const containerdRuncPath = "/usr/bin/runc"
-	err := r.execHostCommand(ctx, "check_runc_path_"+uuid.New().String(), "test", "-f", containerdRuncPath)
+	err := r.execHostCommand(ctx, nil, "check_runc_path_"+uuid.New().String(), "test", "-f", containerdRuncPath)
 	if err == nil {
 		r.runcPath = containerdRuncPath
 	}
@@ -53,7 +54,7 @@ func (r *runtime) setDefaultRuncPath(ctx context.Context) {
 
 // In some version of OS, containers may not be destroyed correctly, if fs.may_detach_mounts is not set.
 func (r *runtime) enableMayDetachMounts(ctx context.Context) error {
-	return r.execHostCommand(ctx, "enable_fs_may_detach_mounts_"+uuid.New().String(), "sysctl", "-e", "-w", "fs.may_detach_mounts=1")
+	return r.execHostCommand(ctx, nil, "enable_fs_may_detach_mounts_"+uuid.New().String(), "sysctl", "-e", "-w", "fs.may_detach_mounts=1")
 }
 
 func (r *runtime) newTask(ctx context.Context, container containerd.Container, creator cio.Creator) (containerd.Task, error) {
@@ -75,13 +76,13 @@ func (r *runtime) newTask(ctx context.Context, container containerd.Container, c
 	killCommand := fmt.Sprintf("kill -9 $(ps --no-headers -o pid,cmd -p $(pidof containerd-shim-runc-v1 containerd-shim-runc-v2) | awk %s)",
 		shellescape.Quote(fmt.Sprintf(`{if ($4 == "%s" && $6 == "%s") print $1}`, r.namespace, container.ID())),
 	)
-	_ = r.execHostCommand(ctx, "remove-task-shim"+uuid.New().String(), "sh", "-c", killCommand)
+	_ = r.execHostCommand(ctx, nil, "remove-task-shim"+uuid.New().String(), "sh", "-c", killCommand)
 
 	// delete orphans runc container in namespace
-	_ = r.execHostCommand(ctx, "remove-runc-container"+uuid.New().String(), "runc", "--root="+filepath.Join("/run/containerd/runc/", r.namespace), "delete", "-f", container.ID())
+	_ = r.execHostCommand(ctx, nil, "remove-runc-container"+uuid.New().String(), "runc", "--root="+filepath.Join("/run/containerd/runc/", r.namespace), "delete", "-f", container.ID())
 
 	// delete orphans containerd task in namespace
-	_ = r.execHostCommand(ctx, "remove-task-path"+uuid.New().String(), "rm", "-rf", filepath.Join("/run/containerd/io.containerd.runtime.v2.task/", r.namespace, container.ID()))
+	_ = r.execHostCommand(ctx, nil, "remove-task-path"+uuid.New().String(), "rm", "-rf", filepath.Join("/run/containerd/io.containerd.runtime.v2.task/", r.namespace, container.ID()))
 
 	// to prevent indefinitely waiting, set default timeout to 1min. If ctx
 	// has an earlier deadline, the timeout will be overridden
@@ -96,8 +97,9 @@ func (r *runtime) newTask(ctx context.Context, container containerd.Container, c
 	return task, err
 }
 
-func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...string) error {
+func (r *runtime) execHostCommand(ctx context.Context, ioc cio.Creator, name string, commands ...string) error {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
+	ioc = lo.If(ioc != nil, ioc).Else(cio.NullIO)
 
 	specOpts := append(
 		containerSpecOpts(r.namespace, nil, &model.Container{Name: name}),
@@ -128,7 +130,7 @@ func (r *runtime) execHostCommand(ctx context.Context, name string, commands ...
 	}
 	defer nc.Delete(ctx)
 
-	task, err := nc.NewTask(ctx, cio.NullIO)
+	task, err := nc.NewTask(ctx, ioc)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}

@@ -97,12 +97,12 @@ func (l *logrotate) SetupLogging(ctx context.Context) error {
 	)
 
 	containerName := "setup-logging-" + uuid.New().String()
-	return l.runtime.NodeExecute(ctx, containerName, commands...)
+	return l.runtime.NodeExecute(ctx, nil, containerName, commands...)
 }
 
 func (l *logrotate) RemoveLogging(ctx context.Context) error {
 	containerName := "remove-logging-" + uuid.New().String()
-	return l.runtime.NodeExecute(ctx, containerName, "rm", "-f", filepath.Join(l.dropInConfigDir, l.runtime.Namespace()))
+	return l.runtime.NodeExecute(ctx, nil, containerName, "rm", "-f", filepath.Join(l.dropInConfigDir, l.runtime.Namespace()))
 }
 
 //go:embed logrotate

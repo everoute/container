@@ -21,6 +21,7 @@ import (
 	"io"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
@@ -44,7 +45,7 @@ type Runtime interface {
 	// Namespace of the current runtime in
 	Namespace() string
 	// NodeExecute execute commands on the runtime node
-	NodeExecute(ctx context.Context, name string, commands ...string) error
+	NodeExecute(ctx context.Context, ioc cio.Creator, name string, commands ...string) error
 	// ConfigRuntime config container runtime
 	ConfigRuntime(ctx context.Context) error
 	// RemoveNamespace delete runtime namespace
@@ -108,5 +109,5 @@ type ContainerManager interface {
 	GetContainerStatus(ctx context.Context, containerID string) (ContainerStatus, error)
 
 	// ExecCommand exec giving commands and return result
-	ExecCommand(ctx context.Context, containerID string, commands []string) (*containerd.ExitStatus, error)
+	ExecCommand(ctx context.Context, ioc cio.Creator, containerID string, commands []string) (*containerd.ExitStatus, error)
 }
