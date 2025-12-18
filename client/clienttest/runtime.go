@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
@@ -59,7 +60,7 @@ func (r *runtime) RecommendedRuntimeInfo(context.Context, *model.Container) *con
 	return &containers.RuntimeInfo{}
 }
 
-func (r *runtime) NodeExecute(ctx context.Context, name string, commands ...string) error {
+func (r *runtime) NodeExecute(ctx context.Context, _ cio.Creator, name string, commands ...string) error {
 	if len(commands) == 0 {
 		return nil
 	}
@@ -160,7 +161,7 @@ func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (c
 	return client.ContainerStatus{Status: containerd.Status{Status: containerd.Running}}, nil
 }
 
-func (r *runtime) ExecCommand(ctx context.Context, containerID string, commands []string) (*containerd.ExitStatus, error) {
+func (r *runtime) ExecCommand(ctx context.Context, _ cio.Creator, containerID string, commands []string) (*containerd.ExitStatus, error) {
 	_, ok := r.containers[containerID]
 	if !ok {
 		return nil, fmt.Errorf("container %s not found", containerID)

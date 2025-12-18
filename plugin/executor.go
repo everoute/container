@@ -688,7 +688,7 @@ func (w *executor) doContainerExecHook(ctx context.Context, name, hookName strin
 		func() {
 			ctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
-			result, err := w.runtime.ExecCommand(ctx, name, hook.ExecCommand)
+			result, err := w.runtime.ExecCommand(ctx, nil, name, hook.ExecCommand)
 			herr = client.HandleTaskResult(result, err)
 		}()
 		if herr == nil {
@@ -768,7 +768,7 @@ func (w *executor) doCheck(ctx context.Context, containerName string, probe *mod
 
 	if len(probe.ExecCommand) != 0 {
 		// do check with exec command in container
-		result, err := w.runtime.ExecCommand(ctx, containerName, probe.ExecCommand)
+		result, err := w.runtime.ExecCommand(ctx, nil, containerName, probe.ExecCommand)
 		err = client.HandleTaskResult(result, err)
 		if err != nil {
 			return fmt.Errorf("exec command %v: %s", probe.ExecCommand, err)

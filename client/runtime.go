@@ -162,8 +162,8 @@ func (r *runtime) Platform() platforms.MatchComparer    { return r.platform }
 func (r *runtime) ContainerdClient() *containerd.Client { return r.client }
 func (r *runtime) Namespace() string                    { return r.namespace }
 
-func (r *runtime) NodeExecute(ctx context.Context, name string, commands ...string) error {
-	return r.execHostCommand(ctx, name, commands...)
+func (r *runtime) NodeExecute(ctx context.Context, ioc cio.Creator, name string, commands ...string) error {
+	return r.execHostCommand(ctx, ioc, name, commands...)
 }
 
 func (r *runtime) ConfigRuntime(ctx context.Context) error {
@@ -414,8 +414,9 @@ func (r *runtime) GetContainerStatus(ctx context.Context, containerID string) (C
 	}, nil
 }
 
-func (r *runtime) ExecCommand(ctx context.Context, containerID string, commands []string) (*containerd.ExitStatus, error) {
+func (r *runtime) ExecCommand(ctx context.Context, ioc cio.Creator, containerID string, commands []string) (*containerd.ExitStatus, error) {
 	ctx = namespaces.WithNamespace(ctx, r.namespace)
+	ioc = lo.If(ioc != nil, ioc).Else(cio.NullIO)
 
 	c, err := r.client.LoadContainer(ctx, containerID)
 	if err != nil {
@@ -437,7 +438,7 @@ func (r *runtime) ExecCommand(ctx context.Context, containerID string, commands 
 	progressSpec.Terminal = false
 	progressSpec.Args = commands
 
-	progress, err := task.Exec(ctx, taskExecID, progressSpec, cio.LogFile(os.DevNull))
+	progress, err := task.Exec(ctx, taskExecID, progressSpec, ioc)
 	if err != nil {
 		return nil, fmt.Errorf("exec command: %w", err)
 	}
