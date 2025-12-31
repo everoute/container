@@ -42,22 +42,29 @@ func DownloadFetch(ctx context.Context, d Downloader, desc ocispec.Descriptor) (
 	return nil, fmt.Errorf("digest %s not found: %w", desc.Digest, ErrNotFound)
 }
 
+// NewDownloadGZIPFromZSDT is typo of NewDownloadGZIPFromZSTD
+// Deprecated, use NewDownloadGZIPFromZSTD
 func NewDownloadGZIPFromZSDT(f File) Downloader {
-	return &downloadGZIPFromZSDT{file: f}
+	return &downloadGZIPFromZSTD{file: f}
 }
 
-type downloadGZIPFromZSDT struct {
+// NewDownloadGZIPFromZSTD convert zstd blob to gzip format
+func NewDownloadGZIPFromZSTD(f File) Downloader {
+	return &downloadGZIPFromZSTD{file: f}
+}
+
+type downloadGZIPFromZSTD struct {
 	file File
 }
 
-func (d *downloadGZIPFromZSDT) Support(_ context.Context, desc ocispec.Descriptor, downloadURL string) bool {
+func (d *downloadGZIPFromZSTD) Support(_ context.Context, desc ocispec.Descriptor, downloadURL string) bool {
 	// NOTE: to reproducible generate gzip from zstd, gzip header should
 	// always be empty, and the default compress level should be used
 	u, err := url.ParseRequestURI(downloadURL)
 	return err == nil && u.Scheme == URISchemeZstd && desc.MediaType == ocispec.MediaTypeImageLayerGzip
 }
 
-func (d *downloadGZIPFromZSDT) Download(_ context.Context, _ ocispec.Descriptor, downloadURL string) (io.ReadCloser, error) {
+func (d *downloadGZIPFromZSTD) Download(_ context.Context, _ ocispec.Descriptor, downloadURL string) (io.ReadCloser, error) {
 	u, err := url.ParseRequestURI(downloadURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid url %s: %w", downloadURL, err)

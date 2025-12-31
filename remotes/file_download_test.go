@@ -30,12 +30,12 @@ import (
 	"github.com/everoute/container/remotes"
 )
 
-func TestDownloadGZIPFromZSDT(t *testing.T) {
+func TestDownloadGZIPFromZSTD(t *testing.T) {
 	RegisterTestingT(t)
 
 	ctx := context.Background()
 	f := remotes.OpenFunc(func() (io.ReadCloser, error) { return os.Open("testdata/example-zstd.tar") })
-	d := remotes.NewDownloadGZIPFromZSDT(f)
+	d := remotes.NewDownloadGZIPFromZSTD(f)
 
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayerGzip,
