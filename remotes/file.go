@@ -60,12 +60,22 @@ var ErrNotFound = errors.New("not found")
 func NewFileProvider(file File) StoreProvider {
 	return &fileProvider{
 		file:       file,
+		preferZSTD: true,
 		downloader: NewDownloadGZIPFromZSTD(file),
 	}
 }
 
 // NewFileProviderWithDownloader create a new file provider use custom Downloader
 func NewFileProviderWithDownloader(file File, downloader Downloader) StoreProvider {
+	return &fileProvider{
+		file:       file,
+		preferZSTD: true,
+		downloader: downloader,
+	}
+}
+
+// NewFileProviderWithDownloaderPreferGZIP prefers to use gzip format images
+func NewFileProviderWithDownloaderPreferGZIP(file File, downloader Downloader) StoreProvider {
 	return &fileProvider{
 		file:       file,
 		downloader: downloader,
@@ -77,6 +87,7 @@ func NewFileProviderWithDownloader(file File, downloader Downloader) StoreProvid
 // - https://github.com/opencontainers/image-spec/blob/main/image-layout.md
 type fileProvider struct {
 	file       File
+	preferZSTD bool // nice to use zstd when preferZSTD
 	downloader Downloader
 	client     *containerd.Client
 }
@@ -196,7 +207,7 @@ func (p *fileProvider) selectImagesFromMap(ctx context.Context, imagesMap map[st
 					return 1 // unknown
 				}
 			}
-			return supportArchiveTypeZstd != (getImageArchiveType(targetImages[i]) < getImageArchiveType(targetImages[j]))
+			return (supportArchiveTypeZstd && p.preferZSTD) != (getImageArchiveType(targetImages[i]) < getImageArchiveType(targetImages[j]))
 		})
 		imageList = append(imageList, targetImages[0])
 	}

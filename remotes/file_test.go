@@ -106,6 +106,71 @@ func TestFileProviderGet(t *testing.T) {
 	})
 }
 
+func TestFileProviderGetPreferGZIP(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("should get file gzip image archive format", func(t *testing.T) {
+		RegisterTestingT(t)
+
+		p := newFileProviderPreferGZIP("testdata/example-noop-1.0.0-gzip.tar")
+		image, err := p.Get(ctx, "example.com/example/noop:1.0.0")
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(string(image.Target.Digest)).Should(Equal("sha256:cbd3ccbe91459729a64eea12be3ae561d18883b0ad1a034c0ffac5cd2ab49746"))
+	})
+
+	t.Run("should get file zstd image archive format", func(t *testing.T) {
+		RegisterTestingT(t)
+
+		p := newFileProviderPreferGZIP("testdata/example-noop-1.0.0-zstd.tar")
+		image, err := p.Get(ctx, "example.com/example/noop:1.0.0")
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(string(image.Target.Digest)).Should(Equal("sha256:37378d19f032cd586790c085aa4f8878a6c51472740e74de16c56e5443a38f21"))
+	})
+
+	t.Run("should get file multi image archive format", func(t *testing.T) {
+		t.Run("without containerd client", func(t *testing.T) {
+			RegisterTestingT(t)
+
+			p := newFileProviderPreferGZIP("testdata/example-noop-1.0.0-multi.tar")
+			image, err := p.Get(ctx, "example.com/example/noop:1.0.0")
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(string(image.Target.Digest)).Should(Equal("sha256:cbd3ccbe91459729a64eea12be3ae561d18883b0ad1a034c0ffac5cd2ab49746"))
+		})
+
+		t.Run("with containerd version < 1.5.0", func(t *testing.T) {
+			RegisterTestingT(t)
+
+			p := newFileProviderPreferGZIP("testdata/example-noop-1.0.0-multi.tar")
+			err := p.(remotes.ContainerdClientInjectable).WithContainerdClient(ctx, &containerd.Client{})
+			Expect(err).ShouldNot(HaveOccurred())
+
+			patches := gomonkey.NewPatches()
+			defer patches.Reset()
+			patches.ApplyMethodFunc(version.NewVersionClient(nil), "Version", patchVersionMethod("1.4.6"))
+
+			image, err := p.Get(ctx, "example.com/example/noop:1.0.0")
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(string(image.Target.Digest)).Should(Equal("sha256:cbd3ccbe91459729a64eea12be3ae561d18883b0ad1a034c0ffac5cd2ab49746"))
+		})
+
+		t.Run("with containerd version >= 1.5.0", func(t *testing.T) {
+			RegisterTestingT(t)
+
+			p := newFileProviderPreferGZIP("testdata/example-noop-1.0.0-multi.tar")
+			err := p.(remotes.ContainerdClientInjectable).WithContainerdClient(ctx, &containerd.Client{})
+			Expect(err).ShouldNot(HaveOccurred())
+
+			patches := gomonkey.NewPatches()
+			defer patches.Reset()
+			patches.ApplyMethodFunc(version.NewVersionClient(nil), "Version", patchVersionMethod("1.5.6"))
+
+			image, err := p.Get(ctx, "example.com/example/noop:1.0.0")
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(string(image.Target.Digest)).Should(Equal("sha256:cbd3ccbe91459729a64eea12be3ae561d18883b0ad1a034c0ffac5cd2ab49746"))
+		})
+	})
+}
+
 func TestFileProviderResolve(t *testing.T) {
 	ctx := context.Background()
 
@@ -204,6 +269,13 @@ func TestFileProviderFetch(t *testing.T) {
 
 func newFileProvider(filePath string) remotes.StoreProvider {
 	return remotes.NewFileProvider(remotes.OpenFunc(func() (io.ReadCloser, error) { return os.Open(filePath) }))
+}
+
+func newFileProviderPreferGZIP(filePath string) remotes.StoreProvider {
+	return remotes.NewFileProviderWithDownloaderPreferGZIP(
+		remotes.OpenFunc(func() (io.ReadCloser, error) { return os.Open(filePath) }),
+		remotes.NewDownloadGZIPFromZSTD(remotes.OpenFunc(func() (io.ReadCloser, error) { return os.Open(filePath) })),
+	)
 }
 
 func patchVersionMethod(v string) func(ctx context.Context, in *ptypes.Empty, opts ...grpc.CallOption) (*version.VersionResponse, error) {
