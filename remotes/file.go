@@ -60,7 +60,7 @@ var ErrNotFound = errors.New("not found")
 func NewFileProvider(file File) StoreProvider {
 	return &fileProvider{
 		file:       file,
-		downloader: NewDownloadGZIPFromZSDT(file),
+		downloader: NewDownloadGZIPFromZSTD(file),
 	}
 }
 
