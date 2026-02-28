@@ -966,7 +966,7 @@ func canSkipRestart(ctx context.Context, runtime client.Runtime, mc *model.Conta
 			spec.Linux.Resources = nil
 		}
 		if spec.Process != nil {
-			runtimeENV := []string{client.ENVRuntimeContainerName, client.ENVRuntimeContainerNamespace, client.ENVRuntimeContainerImage}
+			runtimeENV := []string{client.ENVRuntimeContainerName, client.ENVRuntimeContainerNamespace, client.ENVRuntimeContainerImage, "GOMEMLIMIT"}
 			spec.Process.Env = lo.Filter(spec.Process.Env, func(env string, _ int) bool {
 				return !lo.Contains(runtimeENV, strings.Split(env, "=")[0])
 			})
