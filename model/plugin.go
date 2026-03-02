@@ -101,8 +101,14 @@ type RuntimeDefinition struct {
 }
 
 type UpdatePolicyDefinition struct {
-	OnNoChange     UpdatePolicyMode `yaml:"on_no_change,omitempty"`
-	PreRestartHook *Hook            `yaml:"pre_restart_hook,omitempty"` // exec when the previous container state is running
+	OnNoChange     UpdatePolicyMode       `yaml:"on_no_change,omitempty"`
+	PreRestartHook *Hook                  `yaml:"pre_restart_hook,omitempty"` // exec when the previous container state is running
+	CustomDiffs    []CustomDiffDefinition `yaml:"custom_diffs,omitempty"`
+}
+
+type CustomDiffDefinition struct {
+	Type   CustomDiffType `yaml:"type"`
+	Fields []string       `yaml:"fields,omitempty"`
 }
 
 type Hook struct {
@@ -118,6 +124,12 @@ type UpdatePolicyMode string
 const (
 	UpdatePolicyModeSkip    UpdatePolicyMode = "skip"
 	UpdatePolicyModeRestart UpdatePolicyMode = "restart"
+)
+
+type CustomDiffType string
+
+const (
+	SkipCompareEnvField CustomDiffType = "skip-env-field"
 )
 
 type POSIXRlimit struct {
