@@ -535,7 +535,8 @@ func (w *executor) runContainers(ctx context.Context, containers ...model.Contai
 			mc := toRuntimeContainer(&c, model.RestartPolicyAlways)
 			switch updatePolicyMode {
 			case model.UpdatePolicyModeSkip:
-				can, err := canSkipRestart(ctx, w.runtime, mc)
+				customDiffFuncs := GetCustomDiffProcessFunc(c.UpdatePolicy.CustomDiffs)
+				can, err := canSkipRestart(ctx, w.runtime, mc, customDiffFuncs...)
 				if err != nil {
 					return err
 				}
@@ -903,7 +904,7 @@ func namespaceLabels(ctx context.Context, runtime client.Runtime) (map[string]st
 // 3. container options donot update
 // 4. snapshot parent donot change
 // 5. spec (except resource) donot change
-func canSkipRestart(ctx context.Context, runtime client.Runtime, mc *model.Container) (bool, error) {
+func canSkipRestart(ctx context.Context, runtime client.Runtime, mc *model.Container, processFuncs ...CustomDiffProcessFunc) (bool, error) {
 	p, ok := runtime.(client.ContainerdClientProvider)
 	if !ok {
 		return false, nil
@@ -978,6 +979,9 @@ func canSkipRestart(ctx context.Context, runtime client.Runtime, mc *model.Conta
 				sort.Strings(spec.Process.Capabilities.Ambient)
 			}
 		}
+	}
+	for _, processFunc := range processFuncs {
+		processFunc(oldSpec, newSpec)
 	}
 
 	newSpecRaw := lo.Must(json.Marshal(newSpec))
