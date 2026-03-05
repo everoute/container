@@ -112,6 +112,92 @@ func TestHostPluginExecutorApply(t *testing.T) {
 	})
 }
 
+func TestGetEnvVarValue(t *testing.T) {
+	tests := []struct {
+		name   string
+		env    []string
+		key    string
+		wantV  string
+		wantOk bool
+	}{
+		{"empty env", nil, "GOMEMLIMIT", "", false},
+		{"key missing", []string{"FOO=bar"}, "GOMEMLIMIT", "", false},
+		{"key with value", []string{"GOMEMLIMIT=1073741824"}, "GOMEMLIMIT", "1073741824", true},
+		{"key with value among others", []string{"A=1", "GOMEMLIMIT=1GiB", "B=2"}, "GOMEMLIMIT", "1GiB", true},
+		{"prefix match only", []string{"GOMEMLIMIT_X=no"}, "GOMEMLIMIT", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			gotV, gotOk := plugin.GetEnvVarValue(tt.env, tt.key)
+			Expect(gotOk).To(Equal(tt.wantOk))
+			Expect(gotV).To(Equal(tt.wantV))
+		})
+	}
+}
+
+func TestSetOrReplaceEnv(t *testing.T) {
+	tests := []struct {
+		name   string
+		env    []string
+		key    string
+		value  string
+		want   []string
+	}{
+		{"append to empty", nil, "GOMEMLIMIT", "1GiB", []string{"GOMEMLIMIT=1GiB"}},
+		{"append", []string{"A=1"}, "GOMEMLIMIT", "1GiB", []string{"A=1", "GOMEMLIMIT=1GiB"}},
+		{"replace existing", []string{"A=1", "GOMEMLIMIT=old", "B=2"}, "GOMEMLIMIT", "new", []string{"A=1", "GOMEMLIMIT=new", "B=2"}},
+		{"replace key-only (defensive)", []string{"GOMEMLIMIT"}, "GOMEMLIMIT", "1GiB", []string{"GOMEMLIMIT=1GiB"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			got := plugin.SetOrReplaceEnv(tt.env, tt.key, tt.value)
+			Expect(got).To(Equal(tt.want))
+		})
+	}
+}
+
+func TestHostPluginExecutorApplyResource(t *testing.T) {
+	ctx := context.Background()
+	runtime := clienttest.NewRuntime(time.Microsecond)
+
+	t.Run("should apply resource without SupportApplyResourceContainers", func(t *testing.T) {
+		RegisterTestingT(t)
+		executor := plugin.New(runtime, &model.PluginInstanceDefinition{
+			Containers: []model.ContainerDefinition{
+				newContainerDefinition(rand.String(10), rand.String(10)),
+			},
+		})
+		Expect(executor.ApplyResource(ctx)).ShouldNot(HaveOccurred())
+	})
+
+	t.Run("should apply resource with SupportApplyResourceContainers and skip when container not found", func(t *testing.T) {
+		RegisterTestingT(t)
+		cn := rand.String(10)
+		executor := plugin.New(runtime, &model.PluginInstanceDefinition{
+			Containers: []model.ContainerDefinition{
+				newContainerDefinition(cn, rand.String(10)),
+			},
+		}, plugin.WithSupportApplyResourceContainers(cn))
+		// runtime does not provide containerd client, so getContainerCurrentMemoryLimit returns (0, false, nil); we skip and no error.
+		Expect(executor.ApplyResource(ctx)).ShouldNot(HaveOccurred())
+	})
+
+	t.Run("should apply resource with post containers defined", func(t *testing.T) {
+		RegisterTestingT(t)
+		executor := plugin.New(runtime, &model.PluginInstanceDefinition{
+			Containers: []model.ContainerDefinition{
+				newContainerDefinition(rand.String(10), rand.String(10)),
+			},
+			PostContainers: []model.ContainerDefinition{
+				newContainerDefinition(rand.String(10), rand.String(10)),
+			},
+		}, plugin.WithSupportApplyResourceContainers()) // no apply targets
+		Expect(executor.ApplyResource(ctx)).ShouldNot(HaveOccurred())
+	})
+}
+
 func TestHostPluginExecutorRemove(t *testing.T) {
 	patch := gomonkey.ApplyMethodReturn(nsapi.NewNamespacesClient(nil), "Update", &nsapi.UpdateNamespaceResponse{}, nil)
 	defer patch.Reset()
