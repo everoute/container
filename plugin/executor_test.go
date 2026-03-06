@@ -112,6 +112,21 @@ func TestHostPluginExecutorApply(t *testing.T) {
 	})
 }
 
+func TestHostPluginExecutorApplyResource(t *testing.T) {
+	ctx := context.Background()
+	runtime := clienttest.NewRuntime(time.Microsecond)
+	executor := plugin.New(runtime, &model.PluginInstanceDefinition{
+		Containers: []model.ContainerDefinition{
+			newContainerDefinition(rand.String(10), rand.String(10)),
+		},
+	})
+
+	t.Run("should apply resource without any resource fields", func(t *testing.T) {
+		RegisterTestingT(t)
+		Expect(executor.ApplyResource(ctx)).ShouldNot(HaveOccurred())
+	})
+}
+
 func TestHostPluginExecutorRemove(t *testing.T) {
 	patch := gomonkey.ApplyMethodReturn(nsapi.NewNamespacesClient(nil), "Update", &nsapi.UpdateNamespaceResponse{}, nil)
 	defer patch.Reset()

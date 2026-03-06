@@ -57,11 +57,18 @@ import (
 	"github.com/everoute/container/sync"
 )
 
+const (
+	PostApplyResourceContainerSuffix = "-post-apply-resource"
+)
+
 type Executor interface {
 	io.Closer
 
 	Precheck(ctx context.Context) error
 	Apply(ctx context.Context) error
+	// ApplyResource updates resources limits of running containers according to
+	// the container definitions.
+	ApplyResource(ctx context.Context) error
 	Remove(ctx context.Context) error
 	HealthProbe(ctx context.Context) *model.PluginInstanceHealthResult
 }
@@ -102,12 +109,19 @@ func WithPluginMetrics(factory metrics.Factory) ExecutorOpt {
 	}
 }
 
+func WithSupportApplyResourceContainers(containers ...string) ExecutorOpt {
+	return func(runtime client.Runtime, instance *model.PluginInstanceDefinition, w *executor) {
+		w.supportApplyResourceContainers = containers
+	}
+}
+
 type executor struct {
-	instance  *model.PluginInstanceDefinition
-	logPrefix string
-	runtime   client.Runtime
-	logging   logging.Provider
-	metrics   metrics.Provider
+	instance                       *model.PluginInstanceDefinition
+	logPrefix                      string
+	runtime                        client.Runtime
+	logging                        logging.Provider
+	metrics                        metrics.Provider
+	supportApplyResourceContainers []string
 }
 
 func (w *executor) Close() error {
@@ -258,6 +272,36 @@ func (w *executor) Apply(ctx context.Context) error {
 	}
 
 	w.Infof("apply plugin instance has been successfully done")
+	return nil
+}
+
+// ApplyResource updates resource limits for running containers listed in
+// SupportApplyResourceContainers. Currently only memory limit is supported.
+// Skips update when the container's current memory limit already equals the configured value.
+func (w *executor) ApplyResource(ctx context.Context) error {
+	for _, name := range w.supportApplyResourceContainers {
+		c, ok := lo.Find(w.instance.Containers, func(c model.ContainerDefinition) bool { return c.Name == name })
+		if !ok {
+			continue
+		}
+		updated, err := w.applyContainerMemory(ctx, c)
+		if err != nil {
+			return fmt.Errorf("apply resource for container %s: %w", c.Name, err)
+		}
+		if !updated {
+			continue
+		}
+		postName := fmt.Sprintf("%s%s", name, PostApplyResourceContainerSuffix)
+		postC, ok := lo.Find(w.instance.PostContainers, func(c model.ContainerDefinition) bool { return c.Name == postName })
+		if !ok {
+			continue
+		}
+		err = w.runAndWaitContainers(ctx, postC)
+		if err != nil {
+			return fmt.Errorf("start and wait post container %s: %s", postName, err)
+		}
+		w.Infof("apply resource for container %s has been successfully done", c.Name)
+	}
 	return nil
 }
 
@@ -624,6 +668,73 @@ func (w *executor) removeLeasesInNamespace(ctx context.Context) error {
 	return nil
 }
 
+func (w *executor) applyContainerMemory(ctx context.Context, c model.ContainerDefinition) (bool, error) {
+	if c.Resources == nil || c.Resources.Memory == 0 {
+		w.Warningf("container %s has no memory resource, skip apply resource", c.Name)
+		return false, nil
+	}
+
+	p, ok := w.runtime.(client.ContainerdClientProvider)
+	if !ok {
+		return false, fmt.Errorf("runtime does not support containerd client, apply resources is unsupported")
+	}
+
+	cli := p.ContainerdClient()
+	ctx = namespaces.WithNamespace(ctx, w.runtime.Namespace())
+
+	container, err := cli.LoadContainer(ctx, c.Name)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			w.Warningf("container %s not found, skip apply resource", c.Name)
+			return false, nil
+		}
+		return false, fmt.Errorf("load container: %w", err)
+	}
+
+	spec, err := container.Spec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("get container spec: %w", err)
+	}
+
+	var oldLimit uint64
+	if spec.Linux != nil && spec.Linux.Resources != nil && spec.Linux.Resources.Memory != nil && spec.Linux.Resources.Memory.Limit != nil {
+		oldLimit = uint64(*spec.Linux.Resources.Memory.Limit)
+	}
+	newLimit := c.Resources.Memory
+	if oldLimit == newLimit {
+		return false, nil
+	}
+
+	w.Infof("update container %s memory limit: %d -> %d", c.Name, oldLimit, newLimit)
+
+	limit := int64(newLimit)
+	if spec.Linux == nil {
+		spec.Linux = &specs.Linux{}
+	}
+	if spec.Linux.Resources == nil {
+		spec.Linux.Resources = &specs.LinuxResources{}
+	}
+	spec.Linux.Resources.Memory = &specs.LinuxMemory{Limit: &limit}
+
+	task, err := container.Task(ctx, nil)
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("load task: %w", err)
+	}
+
+	if err := task.Update(ctx, containerd.WithResources(spec.Linux.Resources)); err != nil {
+		return false, fmt.Errorf("task update resources: %w", err)
+	}
+
+	// Sync updated spec into container metadata.
+	if err := container.Update(ctx, containerd.UpdateContainerOpts(containerd.WithSpec(spec))); err != nil {
+		return false, fmt.Errorf("update container spec: %w", err)
+	}
+	return true, nil
+}
+
 func (w *executor) updateOperationMetadata(ctx context.Context) error {
 	return w.doUpdateOperationMetadata(
 		ctx,
@@ -805,6 +916,10 @@ func (e *errorWrapExecutor) Precheck(ctx context.Context) error {
 
 func (e *errorWrapExecutor) Apply(ctx context.Context) error {
 	return errors.Wrap(e.executor.Apply(ctx), e.errorPrefix)
+}
+
+func (e *errorWrapExecutor) ApplyResource(ctx context.Context) error {
+	return errors.Wrap(e.executor.ApplyResource(ctx), e.errorPrefix)
 }
 
 func (e *errorWrapExecutor) Remove(ctx context.Context) error {
