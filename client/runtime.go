@@ -477,6 +477,14 @@ func containerSpecOpts(namespace string, img containerd.Image, container *model.
 	if !mountTargets.Has("/etc/resolv.conf") {
 		specOpts = append(specOpts, oci.WithHostResolvconf)
 	}
+	if !mountTargets.Has("/sys/fs/cgroup") {
+		specOpts = append(specOpts, oci.WithMounts([]specs.Mount{{
+			Type:        "cgroup",
+			Source:      "cgroup",
+			Destination: "/sys/fs/cgroup",
+			Options:     []string{"ro", "nosuid", "noexec", "nodev"},
+		}}))
+	}
 	if container.Privilege {
 		specOpts = append(specOpts, oci.WithPrivileged)
 	}
